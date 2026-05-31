@@ -70,13 +70,14 @@
                 <button data-action="fold" type="button">弃牌</button>
                 <button data-action="check" type="button">过牌</button>
                 <button data-action="call" type="button">跟注</button>
+                <button data-min-bet type="button">20筹码</button>
                 <button data-fraction="0.5" type="button">1/2池</button>
                 <button data-fraction="0.667" type="button">2/3池</button>
                 <button data-fraction="1" type="button">满池</button>
                 <button data-action="allin" type="button">All-in</button>
               </div>
               <div class="custom-row">
-                <input id="customAmount" type="number" min="1" step="1" placeholder="自定义筹码" />
+                <input id="customAmount" type="number" min="20" step="20" placeholder="至少20筹码" />
                 <button id="customBet" type="button">下注</button>
               </div>
             </section>
@@ -104,6 +105,7 @@
           <h3>本桌采用</h3>
           <p>36张牌，只保留 6、7、8、9、10、J、Q、K、A。每名玩家两张手牌，最多五张公共牌，从七张牌中选最佳五张。</p>
           <p>本桌取消大小盲注和前注，保留轮流庄家。每轮行动从非庄家开始，庄家后行动。</p>
+          <p>最低下注或加注为 20 筹码；若剩余筹码不足 20，可以直接全下。</p>
           <p>A 可以当高牌，也可以组成 A-6-7-8-9 的最小顺子。</p>
         </section>
         <section>
@@ -132,6 +134,17 @@
             <span class="suit clubs">♣ 梅花</span>
           </div>
         </section>
+      </div>
+    </dialog>
+
+    <dialog id="gameOverDialog" class="result-dialog">
+      <div class="result-panel">
+        <p class="eyebrow">Game Over</p>
+        <h2 id="gameOverTitle">牌局结束</h2>
+        <p id="gameOverText"></p>
+        <div class="result-actions">
+          <button id="closeGameOver" class="primary" type="button">知道了</button>
+        </div>
       </div>
     </dialog>
 

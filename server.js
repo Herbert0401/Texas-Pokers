@@ -14,7 +14,7 @@ const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STARTING_CHIPS = 2000;
 const MAX_PLAYERS = 2;
-const MIN_BET = 1;
+const MIN_BET = 20;
 
 const rooms = new Map();
 const sockets = new Map();
@@ -355,13 +355,13 @@ function afterAction(room) {
     return;
   }
 
-  if (shouldRunToShowdown(game)) {
-    runOutBoard(game);
-    finishByShowdown(room);
-    return;
-  }
-
   if (isBettingRoundClosed(game)) {
+    if (shouldRunToShowdown(game)) {
+      runOutBoard(game);
+      finishByShowdown(room);
+      return;
+    }
+
     advanceStreet(room);
     return;
   }
@@ -429,6 +429,7 @@ function finishByFold(room) {
   game.history.push(game.result.text);
   syncRoomChips(room);
   updateGameOver(game);
+  attachGameOverSummary(game);
   broadcast(room);
 }
 
@@ -473,6 +474,7 @@ function finishByShowdown(room) {
   game.history.push(resultText);
   syncRoomChips(room);
   updateGameOver(game);
+  attachGameOverSummary(game);
   broadcast(room);
 }
 
@@ -495,6 +497,21 @@ function updateGameOver(game) {
   game.gameOver = game.players.some((player) => player.chips <= 0);
 }
 
+function attachGameOverSummary(game) {
+  if (!game.gameOver || !game.result) return;
+  const ranked = game.players.slice().sort((a, b) => b.chips - a.chips);
+  const winner = ranked[0];
+  const loser = ranked[ranked.length - 1];
+  const text = `${winner.name} 获胜，${loser.name} 筹码归零。`;
+
+  game.result.gameOver = {
+    winner: { seat: winner.seat, name: winner.name, chips: winner.chips },
+    loser: { seat: loser.seat, name: loser.name, chips: loser.chips },
+    text
+  };
+  game.history.push(text);
+}
+
 function syncRoomChips(room) {
   const game = requireGame(room);
   for (const gamePlayer of game.players) {
@@ -513,7 +530,8 @@ function shouldRunToShowdown(game) {
   const active = activePlayers(game);
   return active.length > 1
     && active.some((player) => player.allIn)
-    && active.filter((player) => !player.allIn).length <= 1;
+    && active.filter((player) => !player.allIn).length <= 1
+    && isBettingRoundClosed(game);
 }
 
 function activePlayers(game) {
@@ -580,6 +598,7 @@ function publicGameState(room, game, viewer) {
     pot: game.pot,
     community: game.community,
     currentBet: game.currentBet,
+    minBet: MIN_BET,
     minRaise: game.minRaise,
     actionSeat: game.actionSeat,
     toCall,

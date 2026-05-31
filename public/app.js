@@ -24,10 +24,16 @@ const customAmount = document.querySelector("#customAmount");
 const customBet = document.querySelector("#customBet");
 const historyList = document.querySelector("#historyList");
 const toast = document.querySelector("#toast");
+const gameOverDialog = document.querySelector("#gameOverDialog");
+const gameOverTitle = document.querySelector("#gameOverTitle");
+const gameOverText = document.querySelector("#gameOverText");
+const closeGameOver = document.querySelector("#closeGameOver");
 
 let socket;
 let state;
 let toastTimer;
+let shownGameOverKey = null;
+const DEFAULT_MIN_BET = 20;
 
 const STREET_LABELS = {
   waiting: "等待",
@@ -90,6 +96,7 @@ nextHandButton.addEventListener("click", () => send({ type: "nextHand" }));
 restartButton.addEventListener("click", () => send({ type: "restart" }));
 rulesButton.addEventListener("click", () => rulesDialog.showModal());
 closeRules.addEventListener("click", () => rulesDialog.close());
+closeGameOver.addEventListener("click", () => gameOverDialog.close());
 
 quickActions.addEventListener("click", (event) => {
   const button = event.target.closest("button");
@@ -100,6 +107,9 @@ quickActions.addEventListener("click", (event) => {
   if (action === "check") send({ type: "action", action: "check" });
   if (action === "call") send({ type: "action", action: "call" });
   if (action === "allin") send({ type: "action", action: "bet", amount: heroPlayer().chips });
+  if (button.hasAttribute("data-min-bet")) {
+    send({ type: "action", action: "bet", amount: calculateMinimumBet() });
+  }
 
   if (button.dataset.fraction) {
     send({
@@ -202,6 +212,7 @@ function renderGame() {
   renderStatus(game);
   renderActions(game, hero);
   renderHistory(game.history);
+  maybeShowGameOver(game);
 }
 
 function renderPlayers() {
@@ -228,7 +239,7 @@ function renderPlayers() {
 
 function renderStatus(game) {
   if (game.result) {
-    statusText.textContent = game.gameOver ? `${game.result.text} 有玩家筹码归零，可重新开始整场。` : game.result.text;
+    statusText.textContent = game.result.gameOver?.text || (game.gameOver ? `${game.result.text} 有玩家筹码归零，可重新开始整场。` : game.result.text);
     return;
   }
 
@@ -244,10 +255,11 @@ function renderStatus(game) {
 function renderActions(game, hero) {
   const canAct = Boolean(game.canAct);
   const toCall = game.toCall || 0;
+  const minBet = game.minBet || DEFAULT_MIN_BET;
   const label = canAct
     ? toCall > 0
       ? `需要跟注 ${toCall}。可弃牌、跟注、加注或全下。`
-      : "你可以过牌，也可以下注。"
+      : `你可以过牌，也可以下注，最低投入 ${minBet} 筹码。`
     : "等待对手行动。";
   actionHint.textContent = game.street === "handOver" ? "本手牌已结束。" : label;
 
@@ -255,6 +267,11 @@ function renderActions(game, hero) {
   quickActions.querySelector('[data-action="check"]').disabled = !canAct || toCall > 0;
   quickActions.querySelector('[data-action="call"]').disabled = !canAct || toCall <= 0;
   quickActions.querySelector('[data-action="fold"]').disabled = !canAct || toCall <= 0;
+
+  const minBetButton = quickActions.querySelector("[data-min-bet]");
+  const minBetAmount = calculateMinimumBet();
+  minBetButton.textContent = toCall > 0 ? `最小加注 · ${minBetAmount}` : `${minBetAmount}筹码`;
+  minBetButton.disabled = !canAct || minBetAmount <= 0 || hero.chips <= 0;
 
   quickActions.querySelectorAll("[data-fraction]").forEach((button) => {
     const amount = calculatePotBet(Number(button.dataset.fraction));
@@ -267,6 +284,9 @@ function renderActions(game, hero) {
   allIn.disabled = !canAct || hero.chips <= 0;
   customBet.disabled = !canAct;
   customAmount.disabled = !canAct;
+  customAmount.min = String(toCall > 0 ? toCall : minBet);
+  customAmount.step = String(minBet);
+  customAmount.placeholder = toCall > 0 ? "跟注或加注筹码" : `至少${minBet}筹码`;
 }
 
 function setControlsEnabled(enabled) {
@@ -408,7 +428,36 @@ function calculatePotBet(fraction) {
   const toCall = game.toCall || 0;
   const potAfterCall = game.pot + toCall;
   const wager = toCall + Math.ceil(potAfterCall * fraction);
-  return Math.max(1, Math.min(hero.chips, wager));
+  const minBet = game.minBet || DEFAULT_MIN_BET;
+  const minimum = toCall > 0 ? toCall + game.minRaise : minBet;
+  return Math.max(Math.min(hero.chips, minimum), Math.min(hero.chips, wager));
+}
+
+function calculateMinimumBet() {
+  const game = state?.game;
+  const hero = heroPlayer();
+  if (!game || !hero) return 0;
+  const toCall = game.toCall || 0;
+  const minBet = game.minBet || DEFAULT_MIN_BET;
+  const amount = toCall > 0 ? toCall + Math.max(game.minRaise || minBet, minBet) : minBet;
+  return Math.min(hero.chips, amount);
+}
+
+function maybeShowGameOver(game) {
+  const summary = game.result?.gameOver;
+  if (!summary) return;
+
+  const key = `${game.handNumber}:${summary.winner.name}:${summary.loser.name}`;
+  if (shownGameOverKey === key) return;
+  shownGameOverKey = key;
+
+  gameOverTitle.textContent = `${summary.winner.name} 获胜`;
+  gameOverText.textContent = `${summary.loser.name} 筹码归零，${summary.winner.name} 赢下本场。`;
+  if (typeof gameOverDialog.showModal === "function" && !gameOverDialog.open) {
+    gameOverDialog.showModal();
+  } else {
+    showToast(summary.text);
+  }
 }
 
 function showToast(message) {
