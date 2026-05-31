@@ -16,6 +16,7 @@ const STARTING_CHIPS = 2000;
 const MAX_PLAYERS = 2;
 const MIN_BET = 20;
 const HEARTBEAT_INTERVAL_MS = 10_000;
+const APP_VERSION = process.env.RENDER_GIT_COMMIT || "local-dev";
 
 const rooms = new Map();
 const sockets = new Map();
@@ -29,6 +30,15 @@ const CONTENT_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/api/version") {
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store"
+    });
+    res.end(JSON.stringify({ version: APP_VERSION }));
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/leave") {
     readJsonBody(req, (payload) => {
       const roomCode = String(payload?.roomCode || "");
@@ -60,7 +70,10 @@ const server = http.createServer((req, res) => {
     }
 
     const ext = path.extname(filePath);
-    res.writeHead(200, { "Content-Type": CONTENT_TYPES[ext] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": CONTENT_TYPES[ext] || "application/octet-stream",
+      "Cache-Control": "no-store, max-age=0"
+    });
     res.end(data);
   });
 });
