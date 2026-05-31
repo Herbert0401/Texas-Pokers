@@ -106,10 +106,8 @@ quickActions.addEventListener("click", (event) => {
   if (action === "fold") send({ type: "action", action: "fold" });
   if (action === "check") send({ type: "action", action: "check" });
   if (action === "call") send({ type: "action", action: "call" });
+  if (action === "bet20") send({ type: "action", action: "bet", amount: DEFAULT_MIN_BET });
   if (action === "allin") send({ type: "action", action: "bet", amount: heroPlayer().chips });
-  if (button.hasAttribute("data-min-bet")) {
-    send({ type: "action", action: "bet", amount: calculateMinimumBet() });
-  }
 
   if (button.dataset.fraction) {
     send({
@@ -268,10 +266,9 @@ function renderActions(game, hero) {
   quickActions.querySelector('[data-action="call"]').disabled = !canAct || toCall <= 0;
   quickActions.querySelector('[data-action="fold"]').disabled = !canAct || toCall <= 0;
 
-  const minBetButton = quickActions.querySelector("[data-min-bet]");
-  const minBetAmount = calculateMinimumBet();
-  minBetButton.textContent = toCall > 0 ? `最小加注 · ${minBetAmount}` : `${minBetAmount}筹码`;
-  minBetButton.disabled = !canAct || minBetAmount <= 0 || hero.chips <= 0;
+  const bet20Button = quickActions.querySelector('[data-action="bet20"]');
+  bet20Button.textContent = `下注${minBet}`;
+  bet20Button.disabled = !canAct || toCall > 0 || hero.chips < minBet;
 
   quickActions.querySelectorAll("[data-fraction]").forEach((button) => {
     const amount = calculatePotBet(Number(button.dataset.fraction));
