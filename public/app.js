@@ -9,6 +9,7 @@ const playerList = document.querySelector("#playerList");
 const startButton = document.querySelector("#startButton");
 const nextHandButton = document.querySelector("#nextHandButton");
 const restartButton = document.querySelector("#restartButton");
+const exitButton = document.querySelector("#exitButton");
 const rulesButton = document.querySelector("#rulesButton");
 const rulesDialog = document.querySelector("#rulesDialog");
 const closeRules = document.querySelector("#closeRules");
@@ -25,16 +26,22 @@ const customBet = document.querySelector("#customBet");
 const historyList = document.querySelector("#historyList");
 const toast = document.querySelector("#toast");
 const gameOverDialog = document.querySelector("#gameOverDialog");
+const resultEyebrow = document.querySelector("#resultEyebrow");
 const gameOverTitle = document.querySelector("#gameOverTitle");
 const gameOverText = document.querySelector("#gameOverText");
+const resultCommunity = document.querySelector("#resultCommunity");
+const resultPlayers = document.querySelector("#resultPlayers");
 const closeGameOver = document.querySelector("#closeGameOver");
+const resultNextHand = document.querySelector("#resultNextHand");
+const resultRestart = document.querySelector("#resultRestart");
 
 let socket;
 let state;
 let toastTimer;
-let shownGameOverKey = null;
+let shownResultKey = null;
 let leavingPage = false;
 const DEFAULT_MIN_BET = 20;
+const SESSION_KEY = "shortDeckHeadsUpSession";
 
 const STREET_LABELS = {
   waiting: "等待",
@@ -69,6 +76,7 @@ const SUIT_CLASSES = {
 
 joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  leavingPage = false;
   const name = nameInput.value.trim();
   const roomCode = roomInput.value.trim();
   if (!name || !/^\d{4}$/.test(roomCode)) {
@@ -78,7 +86,14 @@ joinForm.addEventListener("submit", (event) => {
 
   connect();
   const join = () => {
-    send({ type: "join", name, roomCode });
+    const saved = readSavedSession();
+    send({
+      type: "join",
+      name,
+      roomCode,
+      playerId: saved?.roomCode === roomCode ? saved.playerId : null,
+      sessionToken: saved?.roomCode === roomCode ? saved.sessionToken : null
+    });
   };
 
   if (socket.readyState === WebSocket.OPEN) {
@@ -95,12 +110,18 @@ roomInput.addEventListener("input", () => {
 startButton.addEventListener("click", () => send({ type: "start" }));
 nextHandButton.addEventListener("click", () => send({ type: "nextHand" }));
 restartButton.addEventListener("click", () => send({ type: "restart" }));
+exitButton.addEventListener("click", exitRoom);
 rulesButton.addEventListener("click", () => rulesDialog.showModal());
 closeRules.addEventListener("click", () => rulesDialog.close());
 closeGameOver.addEventListener("click", () => gameOverDialog.close());
-
-window.addEventListener("pagehide", notifyLeave);
-window.addEventListener("beforeunload", notifyLeave);
+resultNextHand.addEventListener("click", () => {
+  send({ type: "nextHand" });
+  gameOverDialog.close();
+});
+resultRestart.addEventListener("click", () => {
+  send({ type: "restart" });
+  gameOverDialog.close();
+});
 
 quickActions.addEventListener("click", (event) => {
   const button = event.target.closest("button");
@@ -137,6 +158,8 @@ document.querySelectorAll(".mini-cards").forEach((node) => {
   node.replaceChildren(...node.dataset.example.split(" ").map(renderMiniCard));
 });
 
+attemptReconnect();
+
 function connect() {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -167,39 +190,50 @@ function send(payload) {
   socket.send(JSON.stringify(payload));
 }
 
-function notifyLeave() {
+function exitRoom() {
+  const saved = readSavedSession();
   if (leavingPage || !state?.roomCode || !state?.you) return;
   leavingPage = true;
 
   const payload = JSON.stringify({
     roomCode: state.roomCode,
-    playerId: state.you
+    playerId: state.you,
+    sessionToken: state.sessionToken || saved?.sessionToken || ""
   });
 
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "leave" }));
+    socket.send(JSON.stringify({
+      type: "leave",
+      sessionToken: state.sessionToken || saved?.sessionToken || ""
+    }));
     socket.close(1000, "leaving");
   }
 
+  clearSavedSession();
+
   if (navigator.sendBeacon) {
     navigator.sendBeacon("/api/leave", new Blob([payload], { type: "application/json" }));
-    return;
+  } else {
+    fetch("/api/leave", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true
+    }).catch(() => {});
   }
 
-  fetch("/api/leave", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: payload,
-    keepalive: true
-  }).catch(() => {});
+  resetToJoin();
+  showToast("已退出房间。");
 }
 
 function render() {
+  saveCurrentSession();
   joinView.classList.add("hidden");
   gameView.classList.remove("hidden");
   roomCodeEl.textContent = state.roomCode;
   renderPlayers();
 
+  exitButton.classList.remove("hidden");
   startButton.classList.toggle("hidden", !state.canStart);
 
   if (state.stage === "lobby") {
@@ -241,7 +275,7 @@ function renderGame() {
   renderStatus(game);
   renderActions(game, hero);
   renderHistory(game.history);
-  maybeShowGameOver(game);
+  maybeShowHandResult(game);
 }
 
 function renderPlayers() {
@@ -454,10 +488,11 @@ function calculatePotBet(fraction) {
   const hero = heroPlayer();
   if (!game || !hero) return 0;
   const toCall = game.toCall || 0;
-  const potAfterCall = game.pot + toCall;
-  const wager = toCall + Math.ceil(potAfterCall * fraction);
+  const wager = Math.ceil(game.pot * fraction);
   const minBet = game.minBet || DEFAULT_MIN_BET;
-  const minimum = toCall > 0 ? toCall + game.minRaise : minBet;
+  const minimum = toCall > 0
+    ? wager > toCall ? toCall + Math.max(game.minRaise || minBet, minBet) : toCall
+    : minBet;
   return Math.max(Math.min(hero.chips, minimum), Math.min(hero.chips, wager));
 }
 
@@ -471,21 +506,109 @@ function calculateMinimumBet() {
   return Math.min(hero.chips, amount);
 }
 
-function maybeShowGameOver(game) {
-  const summary = game.result?.gameOver;
-  if (!summary) return;
+function maybeShowHandResult(game) {
+  if (!game.result) {
+    if (gameOverDialog.open) gameOverDialog.close();
+    return;
+  }
 
-  const key = `${game.handNumber}:${summary.winner.name}:${summary.loser.name}`;
-  if (shownGameOverKey === key) return;
-  shownGameOverKey = key;
+  const key = `${game.handNumber}:${game.result.text}`;
+  if (shownResultKey === key) return;
+  shownResultKey = key;
 
-  gameOverTitle.textContent = `${summary.winner.name} 获胜`;
-  gameOverText.textContent = `${summary.loser.name} 筹码归零，${summary.winner.name} 赢下本场。`;
+  const summary = game.result.gameOver;
+  const winners = new Set((game.result.winners || []).map((winner) => winner.seat));
+  resultEyebrow.textContent = summary ? "Game Over" : "Hand Result";
+  gameOverTitle.textContent = summary ? `${summary.winner.name} 获胜` : "本局结算";
+  gameOverText.textContent = summary?.text || game.result.text;
+  resultCommunity.replaceChildren(...renderCommunity(game.community).filter((node) => !node.classList.contains("placeholder")));
+  resultPlayers.replaceChildren(...game.players.map((player) => renderResultPlayer(player, winners.has(player.seat))));
+  resultNextHand.classList.toggle("hidden", !game.canNextHand);
+  resultRestart.classList.toggle("hidden", !game.canRestart);
+
   if (typeof gameOverDialog.showModal === "function" && !gameOverDialog.open) {
     gameOverDialog.showModal();
-  } else {
-    showToast(summary.text);
+  } else if (!gameOverDialog.open) {
+    showToast(game.result.text);
   }
+}
+
+function renderResultPlayer(player, isWinner) {
+  const node = document.createElement("section");
+  node.className = `result-player ${isWinner ? "winner" : ""}`;
+
+  const title = document.createElement("h4");
+  title.textContent = `${player.name}${player.isYou ? "（你）" : ""}${isWinner ? " · 赢" : " · 输"}`;
+
+  const detail = document.createElement("p");
+  const status = player.folded ? "弃牌" : player.evaluation?.label || "未摊牌";
+  detail.textContent = `${status}，剩余 ${player.chips} 筹码`;
+
+  const cards = document.createElement("div");
+  cards.className = "card-row result-card-row";
+  cards.replaceChildren(...(player.holeCards || []).map(renderCard));
+
+  node.append(title, detail, cards);
+  return node;
+}
+
+function readSavedSession() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveCurrentSession() {
+  const me = state?.players?.find((player) => player.id === state.you);
+  if (!state?.roomCode || !state?.you || !state?.sessionToken || !me) return;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({
+    name: me.name,
+    roomCode: state.roomCode,
+    playerId: state.you,
+    sessionToken: state.sessionToken
+  }));
+}
+
+function clearSavedSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function attemptReconnect() {
+  const saved = readSavedSession();
+  if (!saved?.roomCode || !saved?.playerId || !saved?.sessionToken) return;
+
+  leavingPage = false;
+  nameInput.value = saved.name || "";
+  roomInput.value = saved.roomCode;
+  connect();
+  const reconnect = () => {
+    send({
+      type: "join",
+      name: saved.name || "玩家",
+      roomCode: saved.roomCode,
+      playerId: saved.playerId,
+      sessionToken: saved.sessionToken
+    });
+  };
+
+  if (socket.readyState === WebSocket.OPEN) {
+    reconnect();
+  } else {
+    socket.addEventListener("open", reconnect, { once: true });
+  }
+}
+
+function resetToJoin() {
+  state = null;
+  joinView.classList.remove("hidden");
+  gameView.classList.add("hidden");
+  exitButton.classList.add("hidden");
+  startButton.classList.add("hidden");
+  nextHandButton.classList.add("hidden");
+  restartButton.classList.add("hidden");
+  setControlsEnabled(false);
 }
 
 function showToast(message) {

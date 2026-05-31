@@ -16,6 +16,7 @@ const STARTING_CHIPS = 2000;
 const MAX_PLAYERS = 2;
 const MIN_BET = 20;
 const HEARTBEAT_INTERVAL_MS = 10_000;
+const RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || "local-dev";
 
 const rooms = new Map();
@@ -43,8 +44,9 @@ const server = http.createServer((req, res) => {
     readJsonBody(req, (payload) => {
       const roomCode = String(payload?.roomCode || "");
       const playerId = String(payload?.playerId || "");
-      if (roomCode && playerId) {
-        leaveRoom(roomCode, playerId);
+      const sessionToken = String(payload?.sessionToken || "");
+      if (roomCode && playerId && sessionToken) {
+        leaveRoom(roomCode, playerId, sessionToken);
       }
       res.writeHead(204);
       res.end();
@@ -114,7 +116,7 @@ wss.on("connection", (socket) => {
     const activeClient = sockets.get(socket);
     sockets.delete(socket);
     if (!activeClient?.roomCode || !activeClient?.playerId) return;
-    leaveRoom(activeClient.roomCode, activeClient.playerId);
+    markPlayerDisconnected(activeClient.roomCode, activeClient.playerId);
   });
 
   send(socket, { type: "hello", clientId: client.id });
@@ -153,7 +155,7 @@ function handleMessage(client, message) {
       restartGame(client);
       break;
     case "leave":
-      leaveRoom(client.roomCode, client.playerId);
+      leaveRoom(client.roomCode, client.playerId, message.sessionToken);
       client.roomCode = null;
       client.playerId = null;
       break;
@@ -165,6 +167,8 @@ function handleMessage(client, message) {
 function joinRoom(client, message) {
   const name = String(message.name || "").trim().slice(0, 18);
   const roomCode = String(message.roomCode || "").trim();
+  const requestedPlayerId = String(message.playerId || "");
+  const requestedSessionToken = String(message.sessionToken || "");
 
   if (!name) throw new Error("请输入玩家名字。");
   if (!/^\d{4}$/.test(roomCode)) throw new Error("房间密码必须是四位数字。");
@@ -173,12 +177,22 @@ function joinRoom(client, message) {
   if (!room) {
     room = createRoom(roomCode);
     rooms.set(roomCode, room);
-  } else if (!room.players.some((player) => player.connected)) {
-    rooms.delete(roomCode);
-    room = createRoom(roomCode);
-    rooms.set(roomCode, room);
   } else {
-    pruneDisconnectedLobbySeats(room);
+    cleanupExpiredPlayers(room);
+    room = rooms.get(roomCode);
+    if (!room) {
+      room = createRoom(roomCode);
+      rooms.set(roomCode, room);
+    }
+  }
+
+  const reconnectingPlayer = room.players.find((player) => (
+    player.id === requestedPlayerId && player.sessionToken === requestedSessionToken
+  ));
+
+  if (reconnectingPlayer) {
+    reconnectPlayer(room, reconnectingPlayer, client);
+    return;
   }
 
   if (room.players.length >= MAX_PLAYERS) throw new Error("这个房间已经满员。");
@@ -190,6 +204,8 @@ function joinRoom(client, message) {
     seat: room.players.length,
     connected: true,
     socket: client.socket,
+    sessionToken: crypto.randomUUID(),
+    disconnectedAt: null,
     chips: STARTING_CHIPS
   };
 
@@ -244,7 +260,6 @@ function restartGame(client) {
 
 function nextHand(client) {
   const room = requireRoom(client);
-  requireOwner(room, client.playerId);
   const game = requireGame(room);
   if (game.street !== "handOver") throw new Error("当前手牌还没有结束。");
   if (game.gameOver) throw new Error("有玩家筹码归零，请重新开始整场。");
@@ -612,6 +627,7 @@ function publicState(room, viewerId) {
       you: viewerId,
       isOwner: room.ownerId === viewerId,
       canStart: room.stage === "lobby" && room.ownerId === viewerId && room.players.length === MAX_PLAYERS,
+      sessionToken: viewer?.sessionToken || null,
       players: room.players.map((player) => ({
         id: player.id,
         name: player.name,
@@ -647,13 +663,13 @@ function publicGameState(room, game, viewer) {
     toCall,
     canAct,
     gameOver: game.gameOver,
-    canNextHand: room.ownerId === viewer?.id && game.street === "handOver" && !game.gameOver,
+    canNextHand: game.street === "handOver" && !game.gameOver,
     canRestart: room.ownerId === viewer?.id && game.street === "handOver" && game.gameOver,
     result: game.result,
     history: game.history.slice(-10),
     players: game.players.map((player) => {
       const isViewer = player.id === viewer?.id;
-      const showCards = isViewer || game.street === "handOver" && game.result?.type === "showdown";
+      const showCards = isViewer || game.street === "handOver";
       return {
         id: player.id,
         name: player.name,
@@ -722,7 +738,40 @@ function requireOwner(room, playerId) {
   if (room.ownerId !== playerId) throw new Error("只有房主可以执行这个操作。");
 }
 
-function leaveRoom(roomCode, playerId) {
+function leaveRoom(roomCode, playerId, sessionToken) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  const player = room.players.find((item) => item.id === playerId);
+  if (!player) return;
+  if (sessionToken && player.sessionToken !== sessionToken) return;
+
+  if (player.socket) {
+    const oldClient = sockets.get(player.socket);
+    if (oldClient) {
+      oldClient.roomCode = null;
+      oldClient.playerId = null;
+    }
+  }
+
+  room.players = room.players.filter((item) => item.id !== playerId);
+  reseatPlayers(room);
+  room.ownerId = room.players[0]?.id || null;
+
+  if (room.players.length === 0) {
+    rooms.delete(room.code);
+    return;
+  }
+
+  if (room.stage !== "lobby") {
+    room.stage = "lobby";
+    room.game = null;
+  }
+
+  broadcast(room);
+}
+
+function markPlayerDisconnected(roomCode, playerId) {
   const room = rooms.get(roomCode);
   if (!room) return;
 
@@ -731,7 +780,8 @@ function leaveRoom(roomCode, playerId) {
 
   player.connected = false;
   player.socket = null;
-  if (cleanupRoomAfterDisconnect(room)) return;
+  player.disconnectedAt = Date.now();
+  scheduleRoomCleanup(room);
   broadcast(room);
 }
 
@@ -742,34 +792,73 @@ function createRoom(roomCode) {
     players: [],
     stage: "lobby",
     game: null,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    cleanupTimer: null
   };
 }
 
-function cleanupRoomAfterDisconnect(room) {
-  if (!room.players.some((player) => player.connected)) {
-    rooms.delete(room.code);
-    return true;
+function reconnectPlayer(room, player, client) {
+  if (player.socket && player.socket !== client.socket) {
+    const oldClient = sockets.get(player.socket);
+    if (oldClient) {
+      oldClient.roomCode = null;
+      oldClient.playerId = null;
+    }
+    if (player.socket.readyState === WebSocket.OPEN) {
+      player.socket.close(1000, "reconnected");
+    }
   }
 
-  pruneDisconnectedLobbySeats(room);
-  return false;
+  player.connected = true;
+  player.socket = client.socket;
+  player.disconnectedAt = null;
+  client.roomCode = room.code;
+  client.playerId = player.id;
+  broadcast(room);
 }
 
-function pruneDisconnectedLobbySeats(room) {
-  if (room.stage !== "lobby") return;
+function scheduleRoomCleanup(room) {
+  if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
+  room.cleanupTimer = setTimeout(() => {
+    cleanupExpiredPlayers(room);
+    if (rooms.has(room.code)) broadcast(room);
+  }, RECONNECT_WINDOW_MS + 250);
+  if (typeof room.cleanupTimer.unref === "function") room.cleanupTimer.unref();
+}
 
-  const connectedPlayers = room.players.filter((player) => player.connected);
-  if (connectedPlayers.length === room.players.length) return;
+function cleanupExpiredPlayers(room) {
+  const activeRoom = rooms.get(room.code);
+  if (!activeRoom) return;
+  const now = Date.now();
+  const expired = (player) => (
+    !player.connected
+    && player.disconnectedAt
+    && now - player.disconnectedAt >= RECONNECT_WINDOW_MS
+  );
 
-  room.players = connectedPlayers.map((player, seat) => ({
+  if (!activeRoom.players.some((player) => player.connected)) {
+    if (activeRoom.players.every(expired)) {
+      rooms.delete(activeRoom.code);
+    }
+    return;
+  }
+
+  if (activeRoom.stage !== "lobby") return;
+  const remainingPlayers = activeRoom.players.filter((player) => !expired(player));
+  if (remainingPlayers.length !== activeRoom.players.length) {
+    activeRoom.players = remainingPlayers;
+    reseatPlayers(activeRoom);
+    if (!activeRoom.players.some((player) => player.id === activeRoom.ownerId)) {
+      activeRoom.ownerId = activeRoom.players[0]?.id || null;
+    }
+  }
+}
+
+function reseatPlayers(room) {
+  room.players = room.players.map((player, seat) => ({
     ...player,
     seat
   }));
-
-  if (!room.players.some((player) => player.id === room.ownerId)) {
-    room.ownerId = room.players[0]?.id || null;
-  }
 }
 
 function seatName(room, seat) {

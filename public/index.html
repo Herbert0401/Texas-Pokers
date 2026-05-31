@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>短牌单挑桌</title>
-    <link rel="stylesheet" href="/styles.css?v=20260531-rooms-cache" />
+    <link rel="stylesheet" href="/styles.css?v=20260531-reconnect-result" />
   </head>
   <body>
     <div id="app">
@@ -35,6 +35,7 @@
           </div>
           <div class="topbar-actions">
             <button id="rulesButton" class="ghost" type="button">短牌规则</button>
+            <button id="exitButton" class="ghost hidden" type="button">退出</button>
             <button id="startButton" class="primary hidden" type="button">开始游戏</button>
             <button id="nextHandButton" class="primary hidden" type="button">下一局</button>
             <button id="restartButton" class="danger hidden" type="button">重新开始</button>
@@ -139,16 +140,23 @@
 
     <dialog id="gameOverDialog" class="result-dialog">
       <div class="result-panel">
-        <p class="eyebrow">Game Over</p>
-        <h2 id="gameOverTitle">牌局结束</h2>
+        <p class="eyebrow" id="resultEyebrow">Hand Result</p>
+        <h2 id="gameOverTitle">本局结算</h2>
         <p id="gameOverText"></p>
+        <div class="result-section">
+          <h3>公共牌</h3>
+          <div id="resultCommunity" class="community result-card-row"></div>
+        </div>
+        <div id="resultPlayers" class="result-players"></div>
         <div class="result-actions">
-          <button id="closeGameOver" class="primary" type="button">知道了</button>
+          <button id="closeGameOver" class="ghost" type="button">关闭</button>
+          <button id="resultNextHand" class="primary hidden" type="button">下一局</button>
+          <button id="resultRestart" class="danger hidden" type="button">重新开始</button>
         </div>
       </div>
     </dialog>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=20260531-rooms-cache"></script>
+    <script src="/app.js?v=20260531-reconnect-result"></script>
   </body>
 </html>

@@ -531,7 +531,7 @@ input:focus {
 }
 
 .result-dialog {
-  width: min(420px, calc(100vw - 32px));
+  width: min(620px, calc(100vw - 32px));
   border: 0;
   border-radius: 8px;
   padding: 0;
@@ -558,8 +558,55 @@ input:focus {
 
 .result-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: center;
   margin-top: 4px;
+}
+
+.result-section {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.result-section h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.result-card-row {
+  justify-content: flex-start;
+}
+
+.result-players {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.result-player {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+  background: #f8faf8;
+}
+
+.result-player.winner {
+  border-color: rgba(213, 166, 66, 0.75);
+  background: #fff9e8;
+}
+
+.result-player h4,
+.result-player p {
+  margin: 0;
+}
+
+.result-player h4 {
+  font-size: 15px;
 }
 
 .deck-strip,
@@ -844,6 +891,30 @@ input:focus {
 
   .history-item {
     padding-bottom: 5px;
+  }
+
+  .result-dialog {
+    width: min(360px, calc(100vw - 18px));
+  }
+
+  .result-panel {
+    max-height: 88dvh;
+    overflow: auto;
+    gap: 10px;
+    padding: 16px;
+  }
+
+  .result-panel h2 {
+    font-size: 22px;
+  }
+
+  .result-players {
+    grid-template-columns: 1fr;
+  }
+
+  .result-player {
+    gap: 6px;
+    padding: 8px;
   }
 
   .rank-list li {
