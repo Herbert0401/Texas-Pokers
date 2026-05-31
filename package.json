@@ -4,6 +4,9 @@
   "private": true,
   "description": "Two-player online short deck Hold'em table.",
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node --test"
