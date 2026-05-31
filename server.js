@@ -15,6 +15,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const STARTING_CHIPS = 2000;
 const MAX_PLAYERS = 2;
 const MIN_BET = 20;
+const HEARTBEAT_INTERVAL_MS = 10_000;
 
 const rooms = new Map();
 const sockets = new Map();
@@ -28,6 +29,19 @@ const CONTENT_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
+  if (req.method === "POST" && req.url === "/api/leave") {
+    readJsonBody(req, (payload) => {
+      const roomCode = String(payload?.roomCode || "");
+      const playerId = String(payload?.playerId || "");
+      if (roomCode && playerId) {
+        leaveRoom(roomCode, playerId);
+      }
+      res.writeHead(204);
+      res.end();
+    });
+    return;
+  }
+
   const url = new URL(req.url, `http://${req.headers.host}`);
   const requestedPath = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const filePath = path.normalize(path.join(PUBLIC_DIR, requestedPath));
@@ -54,6 +68,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (socket) => {
+  socket.isAlive = true;
   const client = {
     id: crypto.randomUUID(),
     socket,
@@ -61,6 +76,10 @@ wss.on("connection", (socket) => {
     playerId: null
   };
   sockets.set(socket, client);
+
+  socket.on("pong", () => {
+    socket.isAlive = true;
+  });
 
   socket.on("message", (raw) => {
     let message;
@@ -82,18 +101,25 @@ wss.on("connection", (socket) => {
     const activeClient = sockets.get(socket);
     sockets.delete(socket);
     if (!activeClient?.roomCode || !activeClient?.playerId) return;
-    const room = rooms.get(activeClient.roomCode);
-    if (!room) return;
-    const player = room.players.find((item) => item.id === activeClient.playerId);
-    if (player) {
-      player.connected = false;
-      player.socket = null;
-    }
-    if (cleanupRoomAfterDisconnect(room)) return;
-    broadcast(room);
+    leaveRoom(activeClient.roomCode, activeClient.playerId);
   });
 
   send(socket, { type: "hello", clientId: client.id });
+});
+
+const heartbeatInterval = setInterval(() => {
+  for (const socket of wss.clients) {
+    if (socket.isAlive === false) {
+      socket.terminate();
+      continue;
+    }
+    socket.isAlive = false;
+    socket.ping();
+  }
+}, HEARTBEAT_INTERVAL_MS);
+
+wss.on("close", () => {
+  clearInterval(heartbeatInterval);
 });
 
 function handleMessage(client, message) {
@@ -112,6 +138,11 @@ function handleMessage(client, message) {
       break;
     case "restart":
       restartGame(client);
+      break;
+    case "leave":
+      leaveRoom(client.roomCode, client.playerId);
+      client.roomCode = null;
+      client.playerId = null;
       break;
     default:
       throw new Error("未知操作。");
@@ -647,6 +678,21 @@ function send(socket, payload) {
   }
 }
 
+function readJsonBody(req, callback) {
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+    if (body.length > 2048) req.destroy();
+  });
+  req.on("end", () => {
+    try {
+      callback(body ? JSON.parse(body) : {});
+    } catch {
+      callback({});
+    }
+  });
+}
+
 function requireRoom(client) {
   if (!client.roomCode) throw new Error("请先进入房间。");
   const room = rooms.get(client.roomCode);
@@ -661,6 +707,19 @@ function requireGame(room) {
 
 function requireOwner(room, playerId) {
   if (room.ownerId !== playerId) throw new Error("只有房主可以执行这个操作。");
+}
+
+function leaveRoom(roomCode, playerId) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  const player = room.players.find((item) => item.id === playerId);
+  if (!player) return;
+
+  player.connected = false;
+  player.socket = null;
+  if (cleanupRoomAfterDisconnect(room)) return;
+  broadcast(room);
 }
 
 function createRoom(roomCode) {

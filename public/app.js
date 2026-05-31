@@ -33,6 +33,7 @@ let socket;
 let state;
 let toastTimer;
 let shownGameOverKey = null;
+let leavingPage = false;
 const DEFAULT_MIN_BET = 20;
 
 const STREET_LABELS = {
@@ -98,6 +99,9 @@ rulesButton.addEventListener("click", () => rulesDialog.showModal());
 closeRules.addEventListener("click", () => rulesDialog.close());
 closeGameOver.addEventListener("click", () => gameOverDialog.close());
 
+window.addEventListener("pagehide", notifyLeave);
+window.addEventListener("beforeunload", notifyLeave);
+
 quickActions.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button || !state?.game?.canAct) return;
@@ -150,7 +154,7 @@ function connect() {
   });
 
   socket.addEventListener("close", () => {
-    showToast("连接已断开，请刷新页面重新进入。");
+    if (!leavingPage) showToast("连接已断开，请刷新页面重新进入。");
     setControlsEnabled(false);
   });
 }
@@ -161,6 +165,33 @@ function send(payload) {
     return;
   }
   socket.send(JSON.stringify(payload));
+}
+
+function notifyLeave() {
+  if (leavingPage || !state?.roomCode || !state?.you) return;
+  leavingPage = true;
+
+  const payload = JSON.stringify({
+    roomCode: state.roomCode,
+    playerId: state.you
+  });
+
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "leave" }));
+    socket.close(1000, "leaving");
+  }
+
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon("/api/leave", new Blob([payload], { type: "application/json" }));
+    return;
+  }
+
+  fetch("/api/leave", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload,
+    keepalive: true
+  }).catch(() => {});
 }
 
 function render() {
