@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>短牌单挑桌</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section id="joinView" class="join-shell">
+        <div class="brand-block">
+          <p class="eyebrow">Short Deck Heads-Up</p>
+          <h1>短牌单挑桌</h1>
+          <p class="subtle">两名玩家输入相同四位数字进入房间，房主开局。</p>
+        </div>
+        <form id="joinForm" class="join-form">
+          <label>
+            <span>玩家名字</span>
+            <input id="nameInput" name="name" maxlength="18" autocomplete="nickname" placeholder="例如 River" required />
+          </label>
+          <label>
+            <span>四位房间密码</span>
+            <input id="roomInput" name="room" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="2468" required />
+          </label>
+          <button class="primary" type="submit">进入房间</button>
+        </form>
+      </section>
+
+      <section id="gameView" class="game-shell hidden">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">房间 <span id="roomCode">----</span></p>
+            <h2 id="tableTitle">等待玩家</h2>
+          </div>
+          <div class="topbar-actions">
+            <button id="rulesButton" class="ghost" type="button">短牌规则</button>
+            <button id="startButton" class="primary hidden" type="button">开始游戏</button>
+            <button id="nextHandButton" class="primary hidden" type="button">下一局</button>
+            <button id="restartButton" class="danger hidden" type="button">重新开始</button>
+          </div>
+        </header>
+
+        <main class="table-layout">
+          <section class="felt">
+            <div id="opponentPanel" class="player-panel opponent"></div>
+
+            <div class="board-zone">
+              <div class="pot-row">
+                <span id="streetBadge" class="badge">大厅</span>
+                <strong id="potText">底池 0</strong>
+              </div>
+              <div id="communityCards" class="community"></div>
+              <p id="statusText" class="status-text">等待第二名玩家加入。</p>
+            </div>
+
+            <div id="heroPanel" class="player-panel hero"></div>
+          </section>
+
+          <aside class="side-panel">
+            <section class="room-panel">
+              <h3>玩家</h3>
+              <div id="playerList" class="player-list"></div>
+            </section>
+
+            <section class="actions-panel">
+              <h3>行动</h3>
+              <div id="actionHint" class="action-hint">进入房间后等待开局。</div>
+              <div class="quick-actions">
+                <button data-action="fold" type="button">弃牌</button>
+                <button data-action="check" type="button">过牌</button>
+                <button data-action="call" type="button">跟注</button>
+                <button data-fraction="0.5" type="button">1/2池</button>
+                <button data-fraction="0.667" type="button">2/3池</button>
+                <button data-fraction="1" type="button">满池</button>
+                <button data-action="allin" type="button">All-in</button>
+              </div>
+              <div class="custom-row">
+                <input id="customAmount" type="number" min="1" step="1" placeholder="自定义筹码" />
+                <button id="customBet" type="button">下注</button>
+              </div>
+            </section>
+
+            <section class="history-panel">
+              <h3>牌局记录</h3>
+              <div id="historyList" class="history-list"></div>
+            </section>
+          </aside>
+        </main>
+      </section>
+    </div>
+
+    <dialog id="rulesDialog" class="rules-dialog">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">6+ Hold'em</p>
+          <h2>短牌德州规则</h2>
+        </div>
+        <button id="closeRules" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="rules-grid">
+        <section>
+          <h3>本桌采用</h3>
+          <p>36张牌，只保留 6、7、8、9、10、J、Q、K、A。每名玩家两张手牌，最多五张公共牌，从七张牌中选最佳五张。</p>
+          <p>本桌取消大小盲注和前注，保留轮流庄家。每轮行动从非庄家开始，庄家后行动。</p>
+          <p>A 可以当高牌，也可以组成 A-6-7-8-9 的最小顺子。</p>
+        </section>
+        <section>
+          <h3>牌型大小</h3>
+          <ol class="rank-list">
+            <li><span>同花顺</span><div class="mini-cards" data-example="AS KS QS JS TS"></div></li>
+            <li><span>四条</span><div class="mini-cards" data-example="AH AS AD AC 9H"></div></li>
+            <li><span>同花</span><div class="mini-cards" data-example="AH KH JH 9H 7H"></div></li>
+            <li><span>葫芦</span><div class="mini-cards" data-example="KH KS KC 9D 9C"></div></li>
+            <li><span>顺子</span><div class="mini-cards" data-example="AH 9S 8D 7C 6H"></div></li>
+            <li><span>三条</span><div class="mini-cards" data-example="QH QS QC AD 8S"></div></li>
+            <li><span>两对</span><div class="mini-cards" data-example="JH JS 8D 8C AC"></div></li>
+            <li><span>一对</span><div class="mini-cards" data-example="TH TS AD QC 7H"></div></li>
+            <li><span>高牌</span><div class="mini-cards" data-example="AH KD QS JC 9H"></div></li>
+          </ol>
+        </section>
+        <section class="diagram-panel">
+          <h3>短牌牌堆</h3>
+          <div class="deck-strip">
+            <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>J</span><span>Q</span><span>K</span><span>A</span>
+          </div>
+          <div class="suit-strip">
+            <span class="suit spades">♠ 黑桃</span>
+            <span class="suit hearts">♥ 红桃</span>
+            <span class="suit diamonds">♦ 方块</span>
+            <span class="suit clubs">♣ 梅花</span>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
