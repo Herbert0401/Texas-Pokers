@@ -134,6 +134,14 @@ quickActions.addEventListener("click", (event) => {
   if (action === "bet20") send({ type: "action", action: "bet", amount: DEFAULT_MIN_BET });
   if (action === "allin") send({ type: "action", action: "bet", amount: heroPlayer().chips });
 
+  if (button.dataset.bb) {
+    send({
+      type: "action",
+      action: "bet",
+      amount: calculateBbBet(Number(button.dataset.bb))
+    });
+  }
+
   if (button.dataset.fraction) {
     send({
       type: "action",
@@ -335,6 +343,13 @@ function renderActions(game, hero) {
   bet20Button.textContent = `下注${minBet}`;
   bet20Button.disabled = !canAct || toCall > 0 || hero.chips < minBet;
 
+  quickActions.querySelectorAll("[data-bb]").forEach((button) => {
+    const bb = Number(button.dataset.bb);
+    const amount = calculateBbBet(bb);
+    button.textContent = `${bb}BB · ${amount}`;
+    button.disabled = !canAct || amount <= 0 || hero.chips <= 0;
+  });
+
   quickActions.querySelectorAll("[data-fraction]").forEach((button) => {
     const amount = calculatePotBet(Number(button.dataset.fraction));
     button.textContent = `${button.dataset.fraction === "0.667" ? "2/3" : Number(button.dataset.fraction) === 1 ? "满" : "1/2"}池 · ${amount}`;
@@ -494,6 +509,17 @@ function calculatePotBet(fraction) {
     ? wager > toCall ? toCall + Math.max(game.minRaise || minBet, minBet) : toCall
     : minBet;
   return Math.max(Math.min(hero.chips, minimum), Math.min(hero.chips, wager));
+}
+
+function calculateBbBet(multiplier) {
+  const game = state?.game;
+  const hero = heroPlayer();
+  if (!game || !hero) return 0;
+  const minBet = game.minBet || DEFAULT_MIN_BET;
+  const target = minBet * multiplier;
+  const toCall = game.toCall || 0;
+  const amount = toCall > 0 ? Math.max(toCall, target) : target;
+  return Math.min(hero.chips, amount);
 }
 
 function calculateMinimumBet() {
