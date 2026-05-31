@@ -89,8 +89,8 @@ wss.on("connection", (socket) => {
       player.connected = false;
       player.socket = null;
     }
+    if (cleanupRoomAfterDisconnect(room)) return;
     broadcast(room);
-    maybeCleanupRoom(room);
   });
 
   send(socket, { type: "hello", clientId: client.id });
@@ -127,15 +127,14 @@ function joinRoom(client, message) {
 
   let room = rooms.get(roomCode);
   if (!room) {
-    room = {
-      code: roomCode,
-      ownerId: null,
-      players: [],
-      stage: "lobby",
-      game: null,
-      createdAt: Date.now()
-    };
+    room = createRoom(roomCode);
     rooms.set(roomCode, room);
+  } else if (!room.players.some((player) => player.connected)) {
+    rooms.delete(roomCode);
+    room = createRoom(roomCode);
+    rooms.set(roomCode, room);
+  } else {
+    pruneDisconnectedLobbySeats(room);
   }
 
   if (room.players.length >= MAX_PLAYERS) throw new Error("这个房间已经满员。");
@@ -664,13 +663,41 @@ function requireOwner(room, playerId) {
   if (room.ownerId !== playerId) throw new Error("只有房主可以执行这个操作。");
 }
 
-function maybeCleanupRoom(room) {
-  if (room.players.some((player) => player.connected)) return;
-  setTimeout(() => {
-    if (room.players.every((player) => !player.connected)) {
-      rooms.delete(room.code);
-    }
-  }, 30_000);
+function createRoom(roomCode) {
+  return {
+    code: roomCode,
+    ownerId: null,
+    players: [],
+    stage: "lobby",
+    game: null,
+    createdAt: Date.now()
+  };
+}
+
+function cleanupRoomAfterDisconnect(room) {
+  if (!room.players.some((player) => player.connected)) {
+    rooms.delete(room.code);
+    return true;
+  }
+
+  pruneDisconnectedLobbySeats(room);
+  return false;
+}
+
+function pruneDisconnectedLobbySeats(room) {
+  if (room.stage !== "lobby") return;
+
+  const connectedPlayers = room.players.filter((player) => player.connected);
+  if (connectedPlayers.length === room.players.length) return;
+
+  room.players = connectedPlayers.map((player, seat) => ({
+    ...player,
+    seat
+  }));
+
+  if (!room.players.some((player) => player.id === room.ownerId)) {
+    room.ownerId = room.players[0]?.id || null;
+  }
 }
 
 function seatName(room, seat) {
