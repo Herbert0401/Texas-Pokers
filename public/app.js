@@ -138,7 +138,7 @@ quickActions.addEventListener("click", (event) => {
     send({
       type: "action",
       action: "bet",
-      amount: calculateBbBet(Number(button.dataset.bb))
+      amount: calculateBbAction(Number(button.dataset.bb)).amount
     });
   }
 
@@ -345,9 +345,9 @@ function renderActions(game, hero) {
 
   quickActions.querySelectorAll("[data-bb]").forEach((button) => {
     const bb = Number(button.dataset.bb);
-    const amount = calculateBbBet(bb);
-    button.textContent = `${bb}BB · ${amount}`;
-    button.disabled = !canAct || amount <= 0 || hero.chips <= 0;
+    const action = calculateBbAction(bb);
+    button.textContent = `${bb}BB · ${action.target}`;
+    button.disabled = !canAct || action.amount <= 0 || hero.chips <= 0;
   });
 
   quickActions.querySelectorAll("[data-fraction]").forEach((button) => {
@@ -511,15 +511,19 @@ function calculatePotBet(fraction) {
   return Math.max(Math.min(hero.chips, minimum), Math.min(hero.chips, wager));
 }
 
-function calculateBbBet(multiplier) {
+function calculateBbAction(multiplier) {
   const game = state?.game;
   const hero = heroPlayer();
-  if (!game || !hero) return 0;
+  if (!game || !hero) return { amount: 0, target: 0 };
   const minBet = game.minBet || DEFAULT_MIN_BET;
-  const target = minBet * multiplier;
   const toCall = game.toCall || 0;
-  const amount = toCall > 0 ? Math.max(toCall, target) : target;
-  return Math.min(hero.chips, amount);
+  const base = toCall > 0 ? game.currentBet : minBet;
+  const target = base * multiplier;
+  const amount = toCall > 0 ? Math.max(toCall, target - hero.bet) : target;
+  return {
+    amount: Math.min(hero.chips, amount),
+    target: Math.min(hero.bet + hero.chips, target)
+  };
 }
 
 function calculateMinimumBet() {
