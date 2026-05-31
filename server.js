@@ -18,6 +18,7 @@ const MIN_BET = 20;
 const HEARTBEAT_INTERVAL_MS = 10_000;
 const RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || "local-dev";
+const ROOM_STORE_PATH = process.env.ROOM_STORE_PATH || path.join(__dirname, ".data", "rooms.json");
 
 const rooms = new Map();
 const sockets = new Map();
@@ -29,6 +30,8 @@ const CONTENT_TYPES = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml; charset=utf-8"
 };
+
+loadPersistedRooms();
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/api/version") {
@@ -694,6 +697,7 @@ function publicGameState(room, game, viewer) {
 }
 
 function broadcast(room) {
+  persistRooms();
   for (const player of room.players) {
     if (player.socket?.readyState === WebSocket.OPEN) {
       send(player.socket, publicState(room, player.id));
@@ -720,6 +724,66 @@ function readJsonBody(req, callback) {
       callback({});
     }
   });
+}
+
+function loadPersistedRooms() {
+  if (!fs.existsSync(ROOM_STORE_PATH)) return;
+
+  try {
+    const payload = JSON.parse(fs.readFileSync(ROOM_STORE_PATH, "utf8"));
+    const now = Date.now();
+    for (const savedRoom of payload.rooms || []) {
+      const room = {
+        ...savedRoom,
+        cleanupTimer: null,
+        players: (savedRoom.players || []).map((player) => ({
+          ...player,
+          connected: false,
+          socket: null,
+          disconnectedAt: now
+        }))
+      };
+      if (!room.code || !room.players?.length) continue;
+      rooms.set(room.code, room);
+      scheduleRoomCleanup(room);
+    }
+  } catch (error) {
+    console.warn("Failed to load persisted rooms:", error.message);
+  }
+}
+
+function persistRooms() {
+  try {
+    fs.mkdirSync(path.dirname(ROOM_STORE_PATH), { recursive: true });
+    const payload = {
+      savedAt: Date.now(),
+      rooms: Array.from(rooms.values()).map(serializeRoom)
+    };
+    const tempPath = `${ROOM_STORE_PATH}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(payload));
+    fs.renameSync(tempPath, ROOM_STORE_PATH);
+  } catch (error) {
+    console.warn("Failed to persist rooms:", error.message);
+  }
+}
+
+function serializeRoom(room) {
+  return {
+    code: room.code,
+    ownerId: room.ownerId,
+    stage: room.stage,
+    game: room.game,
+    createdAt: room.createdAt,
+    players: room.players.map((player) => ({
+      id: player.id,
+      name: player.name,
+      seat: player.seat,
+      connected: player.connected,
+      sessionToken: player.sessionToken,
+      disconnectedAt: player.disconnectedAt,
+      chips: player.chips
+    }))
+  };
 }
 
 function requireRoom(client) {
@@ -760,6 +824,7 @@ function leaveRoom(roomCode, playerId, sessionToken) {
 
   if (room.players.length === 0) {
     rooms.delete(room.code);
+    persistRooms();
     return;
   }
 
@@ -839,6 +904,7 @@ function cleanupExpiredPlayers(room) {
   if (!activeRoom.players.some((player) => player.connected)) {
     if (activeRoom.players.every(expired)) {
       rooms.delete(activeRoom.code);
+      persistRooms();
     }
     return;
   }

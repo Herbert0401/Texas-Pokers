@@ -40,6 +40,8 @@ let state;
 let toastTimer;
 let shownResultKey = null;
 let leavingPage = false;
+let reconnectTimer = null;
+let reconnectDelay = 1200;
 const DEFAULT_MIN_BET = 20;
 const SESSION_KEY = "shortDeckHeadsUpSession";
 
@@ -168,6 +170,11 @@ document.querySelectorAll(".mini-cards").forEach((node) => {
 
 attemptReconnect();
 
+window.addEventListener("online", () => scheduleReconnect(250));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) scheduleReconnect(250);
+});
+
 function connect() {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -177,6 +184,9 @@ function connect() {
     const payload = JSON.parse(event.data);
     if (payload.type === "state") {
       state = payload.state;
+      reconnectDelay = 1200;
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       render();
     }
     if (payload.type === "notice") {
@@ -185,7 +195,10 @@ function connect() {
   });
 
   socket.addEventListener("close", () => {
-    if (!leavingPage) showToast("连接已断开，请刷新页面重新进入。");
+    if (!leavingPage) {
+      showToast("连接已断开，正在尝试重新进入牌桌。");
+      scheduleReconnect();
+    }
     setControlsEnabled(false);
   });
 }
@@ -202,6 +215,8 @@ function exitRoom() {
   const saved = readSavedSession();
   if (leavingPage || !state?.roomCode || !state?.you) return;
   leavingPage = true;
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = null;
 
   const payload = JSON.stringify({
     roomCode: state.roomCode,
@@ -607,7 +622,14 @@ function clearSavedSession() {
 
 function attemptReconnect() {
   const saved = readSavedSession();
-  if (!saved?.roomCode || !saved?.playerId || !saved?.sessionToken) return;
+  if (leavingPage || !saved?.roomCode || !saved?.playerId || !saved?.sessionToken) return false;
+  if (
+    socket?.readyState === WebSocket.OPEN
+    && state?.roomCode === saved.roomCode
+    && state?.you === saved.playerId
+  ) {
+    return true;
+  }
 
   leavingPage = false;
   nameInput.value = saved.name || "";
@@ -628,6 +650,22 @@ function attemptReconnect() {
   } else {
     socket.addEventListener("open", reconnect, { once: true });
   }
+
+  return true;
+}
+
+function scheduleReconnect(delay = reconnectDelay) {
+  if (leavingPage) return;
+  const saved = readSavedSession();
+  if (!saved?.roomCode || !saved?.playerId || !saved?.sessionToken) return;
+
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
+    if (attemptReconnect()) {
+      reconnectDelay = Math.min(Math.round(reconnectDelay * 1.5), 8000);
+    }
+  }, delay);
 }
 
 function resetToJoin() {
