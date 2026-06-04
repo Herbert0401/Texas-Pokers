@@ -46,7 +46,10 @@ let shownResultKey = null;
 let leavingPage = false;
 let reconnectTimer = null;
 let reconnectDelay = 1200;
-const DEFAULT_MIN_BET = 20;
+let keepAliveTimer = null;
+let lastServerMessageAt = 0;
+const DEFAULT_STARTING_CHIPS = 1000;
+const DEFAULT_MIN_BET = 10;
 const SESSION_KEY = "shortDeckHeadsUpSession";
 
 const STREET_LABELS = {
@@ -141,7 +144,7 @@ quickActions.addEventListener("click", (event) => {
   if (action === "fold") send({ type: "action", action: "fold" });
   if (action === "check") send({ type: "action", action: "check" });
   if (action === "call") send({ type: "action", action: "call" });
-  if (action === "bet20") send({ type: "action", action: "bet", amount: DEFAULT_MIN_BET });
+  if (action === "betMin") send({ type: "action", action: "bet", amount: DEFAULT_MIN_BET });
   if (action === "allin") send({ type: "action", action: "bet", amount: heroPlayer().chips });
 
   if (button.dataset.bb) {
@@ -187,8 +190,15 @@ function connect() {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   socket = new WebSocket(`${protocol}//${window.location.host}`);
+  lastServerMessageAt = Date.now();
+
+  socket.addEventListener("open", () => {
+    lastServerMessageAt = Date.now();
+    startKeepAlive();
+  });
 
   socket.addEventListener("message", (event) => {
+    lastServerMessageAt = Date.now();
     const payload = JSON.parse(event.data);
     if (payload.type === "state") {
       state = payload.state;
@@ -202,7 +212,12 @@ function connect() {
     }
   });
 
+  socket.addEventListener("error", () => {
+    if (!leavingPage) showToast("网络连接不稳定，正在尝试恢复。");
+  });
+
   socket.addEventListener("close", () => {
+    stopKeepAlive();
     if (!leavingPage) {
       showToast("连接已断开，正在尝试重新进入牌桌。");
       scheduleReconnect();
@@ -213,7 +228,8 @@ function connect() {
 
 function send(payload) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    showToast("还没有连接到牌桌。");
+    showToast("还没有连接到牌桌，正在尝试恢复。");
+    scheduleReconnect(250);
     return;
   }
   socket.send(JSON.stringify(payload));
@@ -225,6 +241,7 @@ function exitRoom() {
   leavingPage = true;
   window.clearTimeout(reconnectTimer);
   reconnectTimer = null;
+  stopKeepAlive();
 
   const payload = JSON.stringify({
     roomCode: state.roomCode,
@@ -284,6 +301,8 @@ function renderLobby() {
   statusText.textContent = state.players.length === 2 ? "两名玩家已就位，等待房主开始。" : "把四位房间密码发给对手，对方输入同样密码即可加入。";
   heroPanel.replaceChildren(renderEmptySeat("你的座位"));
   opponentPanel.replaceChildren(renderEmptySeat("对手座位"));
+  heroPanel.classList.remove("your-turn");
+  opponentPanel.classList.remove("active-turn");
   actionHint.textContent = state.isOwner ? "两人到齐后你可以开始游戏。" : "等待房主开始游戏。";
   historyList.replaceChildren();
   nextHandButton.classList.add("hidden");
@@ -301,6 +320,8 @@ function renderGame() {
   potText.textContent = `底池 ${game.pot}`;
   streetBadge.textContent = STREET_LABELS[game.street] || game.street;
   communityCards.replaceChildren(...renderCommunity(game.community));
+  heroPanel.classList.toggle("your-turn", Boolean(hero?.isTurn));
+  opponentPanel.classList.toggle("active-turn", Boolean(opponent?.isTurn));
   heroPanel.replaceChildren(renderPlayerPanel(hero));
   opponentPanel.replaceChildren(renderPlayerPanel(opponent));
   nextHandButton.classList.toggle("hidden", !game.canNextHand);
@@ -313,12 +334,16 @@ function renderGame() {
 
 function renderPlayers() {
   const items = state.players.map((player) => {
+    const livePlayer = state.game?.players?.find((item) => item.id === player.id);
+    const chips = livePlayer?.chips ?? player.chips;
     const node = document.createElement("div");
     node.className = "player-list-item";
     const title = document.createElement("strong");
     title.textContent = `${player.name}${player.isOwner ? " · 房主" : ""}`;
     const meta = document.createElement("span");
-    meta.textContent = `${player.chips} 筹码`;
+    meta.textContent = player.id === state.you
+      ? `${chips} 筹码 · ${waterlineLabel(chips)}`
+      : `${chips} 筹码`;
     node.append(title, meta);
     return node;
   });
@@ -375,9 +400,9 @@ function renderActions(game, hero) {
   quickActions.querySelector('[data-action="call"]').disabled = !canAct || toCall <= 0;
   quickActions.querySelector('[data-action="fold"]').disabled = !canAct || toCall <= 0;
 
-  const bet20Button = quickActions.querySelector('[data-action="bet20"]');
-  bet20Button.textContent = `下注${minBet}`;
-  bet20Button.disabled = !canAct || toCall > 0 || hero.chips < minBet;
+  const minBetButton = quickActions.querySelector('[data-action="betMin"]');
+  minBetButton.textContent = `下注${minBet}`;
+  minBetButton.disabled = !canAct || toCall > 0 || hero.chips < minBet;
 
   quickActions.querySelectorAll("[data-bb]").forEach((button) => {
     const bb = Number(button.dataset.bb);
@@ -446,8 +471,8 @@ function renderPlayerPanel(player) {
 
   if (player.isTurn) {
     const turn = document.createElement("span");
-    turn.className = "turn-chip";
-    turn.textContent = "行动";
+    turn.className = player.isYou ? "turn-chip self-turn" : "turn-chip";
+    turn.textContent = player.isYou ? "轮到你" : "行动";
     nameRow.append(turn);
   }
 
@@ -455,11 +480,17 @@ function renderPlayerPanel(player) {
   chipRow.className = "chip-row";
   chipRow.innerHTML = `<span>筹码 ${player.chips}</span><span>本轮 ${player.bet}</span>${player.allIn ? "<span>All-in</span>" : ""}${player.folded ? "<span>已弃牌</span>" : ""}`;
 
+  const waterline = document.createElement("div");
+  waterline.className = `waterline-row ${waterlineClass(player.chips)}`;
+  waterline.textContent = player.isYou ? waterlineText(player.chips) : "";
+
   const handLabel = document.createElement("div");
   handLabel.className = "chip-row";
   handLabel.textContent = player.evaluation?.label || "";
 
-  wrapper.append(nameRow, chipRow, handLabel);
+  wrapper.append(nameRow, chipRow);
+  if (player.isYou) wrapper.append(waterline);
+  wrapper.append(handLabel);
 
   const cards = document.createElement("div");
   cards.className = "card-row";
@@ -532,6 +563,28 @@ function heroPlayer() {
 
 function opponentPlayer() {
   return state?.game?.players.find((player) => !player.isYou);
+}
+
+function startingChips() {
+  return state?.game?.startingChips || state?.startingChips || DEFAULT_STARTING_CHIPS;
+}
+
+function waterlineText(chips) {
+  return `${waterlineLabel(chips)} 筹码`;
+}
+
+function waterlineLabel(chips) {
+  const delta = chips - startingChips();
+  if (delta > 0) return `水上 +${delta}`;
+  if (delta < 0) return `水下 ${Math.abs(delta)}`;
+  return "持平 0";
+}
+
+function waterlineClass(chips) {
+  const delta = chips - startingChips();
+  if (delta > 0) return "up";
+  if (delta < 0) return "down";
+  return "even";
 }
 
 function calculatePotBet(fraction) {
@@ -691,6 +744,32 @@ function scheduleReconnect(delay = reconnectDelay) {
   }, delay);
 }
 
+function startKeepAlive() {
+  stopKeepAlive();
+  keepAliveTimer = window.setInterval(() => {
+    if (leavingPage) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      scheduleReconnect();
+      return;
+    }
+
+    if (Date.now() - lastServerMessageAt > 55_000) {
+      showToast("网络连接超时，正在重新进入牌桌。");
+      socket.close(4000, "stale connection");
+      scheduleReconnect(250);
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: "ping" }));
+  }, 15_000);
+}
+
+function stopKeepAlive() {
+  if (!keepAliveTimer) return;
+  window.clearInterval(keepAliveTimer);
+  keepAliveTimer = null;
+}
+
 function resetToJoin() {
   state = null;
   joinView.classList.remove("hidden");
@@ -699,6 +778,9 @@ function resetToJoin() {
   startButton.classList.add("hidden");
   nextHandButton.classList.add("hidden");
   restartButton.classList.add("hidden");
+  heroPanel.classList.remove("your-turn");
+  opponentPanel.classList.remove("active-turn");
+  stopKeepAlive();
   setControlsEnabled(false);
 }
 

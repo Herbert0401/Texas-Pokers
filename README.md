@@ -10,7 +10,7 @@ Two-player online Short Deck Hold'em table built with Node.js, WebSocket, and a 
 - The room owner starts the game after both players join.
 - Short Deck rules: 36-card deck, A-6-7-8-9 low straight, flush beats full house.
 - No small blind or big blind, with dealer position rotating every hand.
-- Each player starts with 2000 chips.
+- Each player starts with 1000 chips.
 - Supports fold, check, call, half-pot, two-thirds-pot, pot-size, all-in, and custom chip actions.
 
 ## Run Locally

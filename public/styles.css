@@ -217,6 +217,17 @@ input:focus {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.player-panel.active-turn {
+  border-color: rgba(184, 243, 207, 0.78);
+  box-shadow: 0 0 0 3px rgba(184, 243, 207, 0.16);
+}
+
+.player-panel.your-turn {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(190, 49, 68, 0.38);
+  box-shadow: 0 0 0 4px rgba(190, 49, 68, 0.26), 0 16px 38px rgba(60, 6, 16, 0.24);
+}
+
 .player-meta {
   display: grid;
   gap: 8px;
@@ -268,6 +279,34 @@ input:focus {
 .turn-chip {
   color: #08311f;
   background: #b8f3cf;
+}
+
+.turn-chip.self-turn {
+  color: #fff;
+  background: var(--danger);
+}
+
+.waterline-row {
+  width: fit-content;
+  min-height: 28px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.waterline-row.up {
+  background: rgba(24, 131, 58, 0.86);
+}
+
+.waterline-row.down {
+  background: rgba(190, 49, 68, 0.9);
+}
+
+.waterline-row.even {
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .board-zone {
@@ -781,6 +820,12 @@ input:focus {
   .turn-chip {
     min-height: 20px;
     padding: 0 7px;
+    font-size: 10px;
+  }
+
+  .waterline-row {
+    min-height: 20px;
+    padding: 3px 6px;
     font-size: 10px;
   }
 

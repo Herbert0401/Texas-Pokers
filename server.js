@@ -5,16 +5,17 @@ const crypto = require("crypto");
 const { WebSocket, WebSocketServer } = require("ws");
 const {
   compareEvaluations,
-  evaluateSeven,
+  evaluateSeven
 } = require("./src/poker");
 const { createDeckForHand } = require("./src/entertainment");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
-const STARTING_CHIPS = 2000;
+const STARTING_CHIPS = 1000;
 const MAX_PLAYERS = 2;
-const MIN_BET = 20;
-const HEARTBEAT_INTERVAL_MS = 10_000;
+const MIN_BET = 10;
+const HEARTBEAT_INTERVAL_MS = 20_000;
+const MAX_MISSED_PONGS = 3;
 const RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 const APP_VERSION = process.env.RENDER_GIT_COMMIT || "local-dev";
 const ROOM_STORE_PATH = process.env.ROOM_STORE_PATH || path.join(__dirname, ".data", "rooms.json");
@@ -86,6 +87,7 @@ const wss = new WebSocketServer({ server });
 
 wss.on("connection", (socket) => {
   socket.isAlive = true;
+  socket.missedPongs = 0;
   const client = {
     id: crypto.randomUUID(),
     socket,
@@ -96,6 +98,7 @@ wss.on("connection", (socket) => {
 
   socket.on("pong", () => {
     socket.isAlive = true;
+    socket.missedPongs = 0;
   });
 
   socket.on("message", (raw) => {
@@ -126,12 +129,18 @@ wss.on("connection", (socket) => {
 
 const heartbeatInterval = setInterval(() => {
   for (const socket of wss.clients) {
-    if (socket.isAlive === false) {
+    if (socket.missedPongs >= MAX_MISSED_PONGS) {
       socket.terminate();
       continue;
     }
+
     socket.isAlive = false;
-    socket.ping();
+    socket.missedPongs += 1;
+    try {
+      socket.ping();
+    } catch {
+      socket.terminate();
+    }
   }
 }, HEARTBEAT_INTERVAL_MS);
 
@@ -149,6 +158,9 @@ function handleMessage(client, message) {
       break;
     case "settings":
       updateRoomSettings(client, message);
+      break;
+    case "ping":
+      send(client.socket, { type: "pong", now: Date.now() });
       break;
     case "action":
       playerAction(client, message);
@@ -660,6 +672,7 @@ function publicState(room, viewerId) {
     state: {
       roomCode: room.code,
       stage: room.stage,
+      startingChips: STARTING_CHIPS,
       entertainmentMode: Boolean(room.entertainmentMode),
       you: viewerId,
       isOwner: room.ownerId === viewerId,
@@ -689,6 +702,7 @@ function publicGameState(room, game, viewer) {
 
   return {
     handNumber: game.handNumber,
+    startingChips: STARTING_CHIPS,
     dealerSeat: game.dealerSeat,
     street: game.street,
     pot: game.pot,
@@ -993,3 +1007,12 @@ function suitSymbol(suit) {
 server.listen(PORT, () => {
   console.log(`Short Deck table running at http://localhost:${PORT}`);
 });
+
+function shutdown() {
+  persistRooms();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
