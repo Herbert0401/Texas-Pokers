@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>短牌单挑桌</title>
-    <link rel="stylesheet" href="/styles.css?v=20260531-scaled-bb-actions" />
+    <link rel="stylesheet" href="/styles.css?v=20260604-entertainment-mode" />
   </head>
   <body>
     <div id="app">
@@ -62,6 +62,13 @@
             <section class="room-panel">
               <h3>玩家</h3>
               <div id="playerList" class="player-list"></div>
+              <div id="modePanel" class="mode-panel">
+                <div class="mode-copy">
+                  <strong id="modeLabel">标准牌局</strong>
+                  <span id="modeDescription">正常随机发牌。</span>
+                </div>
+                <button id="entertainmentToggle" class="ghost" type="button">开启娱乐模式</button>
+              </div>
             </section>
 
             <section class="actions-panel">
@@ -160,6 +167,6 @@
     </dialog>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=20260531-scaled-bb-actions"></script>
+    <script src="/app.js?v=20260604-entertainment-mode"></script>
   </body>
 </html>

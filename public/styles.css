@@ -406,6 +406,37 @@ input:focus {
   background: #f4f7f4;
 }
 
+.mode-panel {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf1ed;
+}
+
+.mode-panel.enabled {
+  color: #14321f;
+}
+
+.mode-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.mode-copy strong {
+  font-size: 14px;
+}
+
+.mode-copy span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.mode-panel button {
+  width: 100%;
+}
+
 .action-hint {
   min-height: 42px;
   margin-bottom: 12px;
@@ -845,6 +876,28 @@ input:focus {
     gap: 2px;
     min-height: 30px;
     padding: 5px 6px;
+    font-size: 11px;
+  }
+
+  .mode-panel {
+    gap: 5px;
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  .mode-copy {
+    gap: 1px;
+  }
+
+  .mode-copy strong,
+  .mode-copy span {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+
+  .mode-panel button {
+    min-height: 30px;
+    padding: 0 5px;
     font-size: 11px;
   }
 

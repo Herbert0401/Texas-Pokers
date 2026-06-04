@@ -6,6 +6,10 @@ const roomInput = document.querySelector("#roomInput");
 const roomCodeEl = document.querySelector("#roomCode");
 const tableTitle = document.querySelector("#tableTitle");
 const playerList = document.querySelector("#playerList");
+const modePanel = document.querySelector("#modePanel");
+const modeLabel = document.querySelector("#modeLabel");
+const modeDescription = document.querySelector("#modeDescription");
+const entertainmentToggle = document.querySelector("#entertainmentToggle");
 const startButton = document.querySelector("#startButton");
 const nextHandButton = document.querySelector("#nextHandButton");
 const restartButton = document.querySelector("#restartButton");
@@ -110,6 +114,10 @@ roomInput.addEventListener("input", () => {
 });
 
 startButton.addEventListener("click", () => send({ type: "start" }));
+entertainmentToggle.addEventListener("click", () => {
+  if (!state?.isOwner || state.stage !== "lobby") return;
+  send({ type: "settings", entertainmentMode: !state.entertainmentMode });
+});
 nextHandButton.addEventListener("click", () => send({ type: "nextHand" }));
 restartButton.addEventListener("click", () => send({ type: "restart" }));
 exitButton.addEventListener("click", exitRoom);
@@ -255,6 +263,7 @@ function render() {
   gameView.classList.remove("hidden");
   roomCodeEl.textContent = state.roomCode;
   renderPlayers();
+  renderModeControls();
 
   exitButton.classList.remove("hidden");
   startButton.classList.toggle("hidden", !state.canStart);
@@ -287,7 +296,8 @@ function renderGame() {
   const hero = heroPlayer();
   const opponent = opponentPlayer();
 
-  tableTitle.textContent = game.street === "handOver" ? `第 ${game.handNumber} 手牌结束` : `第 ${game.handNumber} 手`;
+  const title = game.street === "handOver" ? `第 ${game.handNumber} 手牌结束` : `第 ${game.handNumber} 手`;
+  tableTitle.textContent = state.entertainmentMode ? `${title} · 娱乐模式` : title;
   potText.textContent = `底池 ${game.pot}`;
   streetBadge.textContent = STREET_LABELS[game.street] || game.street;
   communityCards.replaceChildren(...renderCommunity(game.community));
@@ -323,9 +333,20 @@ function renderPlayers() {
   playerList.replaceChildren(...items);
 }
 
+function renderModeControls() {
+  const enabled = Boolean(state.entertainmentMode);
+  modePanel.classList.toggle("enabled", enabled);
+  modeLabel.textContent = enabled ? "娱乐模式已开启" : "标准牌局";
+  modeDescription.textContent = enabled ? "约半数手牌会出现更强听牌和河牌转折。" : "正常随机发牌。";
+  entertainmentToggle.textContent = enabled ? "关闭娱乐模式" : "开启娱乐模式";
+  entertainmentToggle.className = enabled ? "primary" : "ghost";
+  entertainmentToggle.disabled = !state.isOwner || state.stage !== "lobby";
+}
+
 function renderStatus(game) {
   if (game.result) {
-    statusText.textContent = game.result.gameOver?.text || (game.gameOver ? `${game.result.text} 有玩家筹码归零，可重新开始整场。` : game.result.text);
+    const base = game.result.gameOver?.text || (game.gameOver ? `${game.result.text} 有玩家筹码归零，可重新开始整场。` : game.result.text);
+    statusText.textContent = game.result.entertainment?.text ? `${base} ${game.result.entertainment.text}` : base;
     return;
   }
 
@@ -565,7 +586,9 @@ function maybeShowHandResult(game) {
   const winners = new Set((game.result.winners || []).map((winner) => winner.seat));
   resultEyebrow.textContent = summary ? "Game Over" : "Hand Result";
   gameOverTitle.textContent = summary ? `${summary.winner.name} 获胜` : "本局结算";
-  gameOverText.textContent = summary?.text || game.result.text;
+  gameOverText.textContent = [summary?.text || game.result.text, game.result.entertainment?.text]
+    .filter(Boolean)
+    .join(" ");
   resultCommunity.replaceChildren(...renderCommunity(game.community).filter((node) => !node.classList.contains("placeholder")));
   resultPlayers.replaceChildren(...game.players.map((player) => renderResultPlayer(player, winners.has(player.seat))));
   resultNextHand.classList.toggle("hidden", !game.canNextHand);

@@ -5,10 +5,9 @@ const crypto = require("crypto");
 const { WebSocket, WebSocketServer } = require("ws");
 const {
   compareEvaluations,
-  createDeck,
   evaluateSeven,
-  shuffle
 } = require("./src/poker");
+const { createDeckForHand } = require("./src/entertainment");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -148,6 +147,9 @@ function handleMessage(client, message) {
     case "start":
       startGame(client);
       break;
+    case "settings":
+      updateRoomSettings(client, message);
+      break;
     case "action":
       playerAction(client, message);
       break;
@@ -242,7 +244,8 @@ function startGame(client) {
     players: [],
     history: [],
     result: null,
-    gameOver: false
+    gameOver: false,
+    entertainment: null
   };
 
   beginHand(room);
@@ -271,16 +274,21 @@ function nextHand(client) {
 
 function beginHand(room) {
   const game = requireGame(room);
+  const handDeck = createDeckForHand({ entertainmentMode: room.entertainmentMode });
   game.handNumber += 1;
   game.dealerSeat = otherSeat(game.dealerSeat);
-  game.deck = shuffle(createDeck());
+  game.deck = handDeck.deck;
   game.community = [];
   game.street = "preflop";
   game.pot = 0;
   game.currentBet = 0;
   game.minRaise = MIN_BET;
   game.result = null;
+  game.entertainment = handDeck.entertainment;
   game.history = [`第 ${game.handNumber} 手牌开始，${seatName(room, game.dealerSeat)} 是庄家。`];
+  if (room.entertainmentMode) {
+    game.history.push("娱乐模式开启：约半数手牌会出现更强听牌和河牌转折。");
+  }
 
   game.players = room.players.map((player) => ({
     id: player.id,
@@ -297,6 +305,14 @@ function beginHand(room) {
   }));
 
   game.actionSeat = nextActionSeat(game, otherSeat(game.dealerSeat));
+  broadcast(room);
+}
+
+function updateRoomSettings(client, message) {
+  const room = requireRoom(client);
+  requireOwner(room, client.playerId);
+  if (room.stage !== "lobby") throw new Error("只能在大厅中切换牌局模式。");
+  room.entertainmentMode = Boolean(message.entertainmentMode);
   broadcast(room);
 }
 
@@ -488,6 +504,7 @@ function finishByFold(room) {
     text: `${winner.name} 赢得 ${amount} 筹码。`
   };
   game.history.push(game.result.text);
+  attachEntertainmentSummary(game);
   syncRoomChips(room);
   updateGameOver(game);
   attachGameOverSummary(game);
@@ -533,6 +550,7 @@ function finishByShowdown(room) {
     text: resultText
   };
   game.history.push(resultText);
+  attachEntertainmentSummary(game);
   syncRoomChips(room);
   updateGameOver(game);
   attachGameOverSummary(game);
@@ -568,6 +586,21 @@ function attachGameOverSummary(game) {
   game.result.gameOver = {
     winner: { seat: winner.seat, name: winner.name, chips: winner.chips },
     loser: { seat: loser.seat, name: loser.name, chips: loser.chips },
+    text
+  };
+  game.history.push(text);
+}
+
+function attachEntertainmentSummary(game) {
+  if (!game.entertainment?.dramatic || !game.result) return;
+
+  const text = game.result.type === "showdown"
+    ? `娱乐模式：${game.entertainment.label}。`
+    : `娱乐模式：本手原本准备了${game.entertainment.label}，但弃牌提前结束。`;
+
+  game.result.entertainment = {
+    dramatic: true,
+    label: game.entertainment.label,
     text
   };
   game.history.push(text);
@@ -627,6 +660,7 @@ function publicState(room, viewerId) {
     state: {
       roomCode: room.code,
       stage: room.stage,
+      entertainmentMode: Boolean(room.entertainmentMode),
       you: viewerId,
       isOwner: room.ownerId === viewerId,
       canStart: room.stage === "lobby" && room.ownerId === viewerId && room.players.length === MAX_PLAYERS,
@@ -669,6 +703,11 @@ function publicGameState(room, game, viewer) {
     canNextHand: game.street === "handOver" && !game.gameOver,
     canRestart: room.ownerId === viewer?.id && game.street === "handOver" && game.gameOver,
     result: game.result,
+    entertainment: {
+      enabled: Boolean(room.entertainmentMode),
+      revealed: game.street === "handOver" && Boolean(game.result?.entertainment),
+      text: game.street === "handOver" ? game.result?.entertainment?.text || null : null
+    },
     history: game.history.slice(-10),
     players: game.players.map((player) => {
       const isViewer = player.id === viewer?.id;
@@ -735,6 +774,7 @@ function loadPersistedRooms() {
     for (const savedRoom of payload.rooms || []) {
       const room = {
         ...savedRoom,
+        entertainmentMode: Boolean(savedRoom.entertainmentMode),
         cleanupTimer: null,
         players: (savedRoom.players || []).map((player) => ({
           ...player,
@@ -772,6 +812,7 @@ function serializeRoom(room) {
     code: room.code,
     ownerId: room.ownerId,
     stage: room.stage,
+    entertainmentMode: Boolean(room.entertainmentMode),
     game: room.game,
     createdAt: room.createdAt,
     players: room.players.map((player) => ({
@@ -856,6 +897,7 @@ function createRoom(roomCode) {
     ownerId: null,
     players: [],
     stage: "lobby",
+    entertainmentMode: false,
     game: null,
     createdAt: Date.now(),
     cleanupTimer: null
