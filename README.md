@@ -2,12 +2,13 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Herbert0401/Texas-Pokers)
 
-Two-player online Short Deck Hold'em table built with Node.js, WebSocket, and a static browser client.
+Multiplayer online Short Deck Hold'em table built with Node.js, WebSocket, and a static browser client.
 
 ## Features
 
-- Two players enter the same room with a four-digit code.
-- The room owner starts the game after both players join.
+- Players enter the same room with a four-digit code.
+- The room owner starts the game after at least two players join.
+- New players can join a room during a hand and will enter the next hand without resetting current players.
 - Short Deck rules: 36-card deck, A-6-7-8-9 low straight, flush beats full house.
 - No small blind or big blind, with dealer position rotating every hand.
 - Each player starts with 1000 chips.
@@ -20,7 +21,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:3000` in two browser windows and join with the same four-digit room code.
+Open `http://localhost:3000` in multiple browser windows and join with the same four-digit room code.
 
 ## Deploy Online
 

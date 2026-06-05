@@ -294,16 +294,16 @@ function render() {
 }
 
 function renderLobby() {
-  tableTitle.textContent = state.players.length === 2 ? "房主可以开始游戏" : "等待第二名玩家";
+  tableTitle.textContent = state.players.length >= 2 ? "房主可以开始游戏" : "等待第二名玩家";
   potText.textContent = "底池 0";
   streetBadge.textContent = "大厅";
   communityCards.replaceChildren(...Array.from({ length: 5 }, () => renderPlaceholder()));
-  statusText.textContent = state.players.length === 2 ? "两名玩家已就位，等待房主开始。" : "把四位房间密码发给对手，对方输入同样密码即可加入。";
+  statusText.textContent = state.players.length >= 2 ? `${state.players.length} 名玩家已就位，等待房主开始。` : "把四位房间密码发给对手，对方输入同样密码即可加入。";
   heroPanel.replaceChildren(renderEmptySeat("你的座位"));
-  opponentPanel.replaceChildren(renderEmptySeat("对手座位"));
+  opponentPanel.replaceChildren(renderOpponentShell(null, "对手座位"));
   heroPanel.classList.remove("your-turn");
-  opponentPanel.classList.remove("active-turn");
-  actionHint.textContent = state.isOwner ? "两人到齐后你可以开始游戏。" : "等待房主开始游戏。";
+  opponentPanel.querySelectorAll(".player-panel").forEach((panel) => panel.classList.remove("active-turn"));
+  actionHint.textContent = state.isOwner ? "至少两人到齐后你可以开始游戏。" : "等待房主开始游戏。";
   historyList.replaceChildren();
   nextHandButton.classList.add("hidden");
   restartButton.classList.add("hidden");
@@ -313,7 +313,7 @@ function renderLobby() {
 function renderGame() {
   const game = state.game;
   const hero = heroPlayer();
-  const opponent = opponentPlayer();
+  const opponents = opponentPlayers();
 
   const title = game.street === "handOver" ? `第 ${game.handNumber} 手牌结束` : `第 ${game.handNumber} 手`;
   tableTitle.textContent = state.entertainmentMode ? `${title} · 娱乐模式` : title;
@@ -321,9 +321,10 @@ function renderGame() {
   streetBadge.textContent = STREET_LABELS[game.street] || game.street;
   communityCards.replaceChildren(...renderCommunity(game.community));
   heroPanel.classList.toggle("your-turn", Boolean(hero?.isTurn));
-  opponentPanel.classList.toggle("active-turn", Boolean(opponent?.isTurn));
+  opponentPanel.classList.remove("active-turn");
   heroPanel.replaceChildren(renderPlayerPanel(hero));
-  opponentPanel.replaceChildren(renderPlayerPanel(opponent));
+  opponentPanel.replaceChildren(...opponents.map((opponent) => renderOpponentShell(opponent)));
+  if (!opponents.length) opponentPanel.replaceChildren(renderOpponentShell(null, "等待对手"));
   nextHandButton.classList.toggle("hidden", !game.canNextHand);
   restartButton.classList.toggle("hidden", !game.canRestart);
   renderStatus(game);
@@ -341,9 +342,10 @@ function renderPlayers() {
     const title = document.createElement("strong");
     title.textContent = `${player.name}${player.isOwner ? " · 房主" : ""}`;
     const meta = document.createElement("span");
+    const seatState = player.waitingNextHand ? " · 下一手加入" : player.inHand ? " · 本手中" : "";
     meta.textContent = player.id === state.you
-      ? `${chips} 筹码 · ${waterlineLabel(chips)}`
-      : `${chips} 筹码`;
+      ? `${chips} 筹码 · ${waterlineLabel(chips)}${seatState}`
+      : `${chips} 筹码${seatState}`;
     node.append(title, meta);
     return node;
   });
@@ -369,6 +371,11 @@ function renderModeControls() {
 }
 
 function renderStatus(game) {
+  if (game.isSittingOut) {
+    statusText.textContent = "你已加入房间，当前手牌先旁观，下一手开始参与。";
+    return;
+  }
+
   if (game.result) {
     const base = game.result.gameOver?.text || (game.gameOver ? `${game.result.text} 有玩家筹码归零，可重新开始整场。` : game.result.text);
     statusText.textContent = game.result.entertainment?.text ? `${base} ${game.result.entertainment.text}` : base;
@@ -385,6 +392,12 @@ function renderStatus(game) {
 }
 
 function renderActions(game, hero) {
+  if (!hero) {
+    actionHint.textContent = "你已在房间中，等待下一手发牌后开始行动。";
+    setControlsEnabled(false);
+    return;
+  }
+
   const canAct = Boolean(game.canAct);
   const toCall = game.toCall || 0;
   const minBet = game.minBet || DEFAULT_MIN_BET;
@@ -505,6 +518,14 @@ function renderPlayerPanel(player) {
   return fragment;
 }
 
+function renderOpponentShell(player, emptyLabel = "等待玩家") {
+  const panel = document.createElement("div");
+  panel.className = "player-panel opponent";
+  if (player?.isTurn) panel.classList.add("active-turn");
+  panel.replaceChildren(player ? renderPlayerPanel(player) : renderEmptySeat(emptyLabel));
+  return panel;
+}
+
 function renderEmptySeat(label) {
   const fragment = document.createDocumentFragment();
   const meta = document.createElement("div");
@@ -561,8 +582,8 @@ function heroPlayer() {
   return state?.game?.players.find((player) => player.isYou);
 }
 
-function opponentPlayer() {
-  return state?.game?.players.find((player) => !player.isYou);
+function opponentPlayers() {
+  return state?.game?.players.filter((player) => !player.isYou) || [];
 }
 
 function startingChips() {
