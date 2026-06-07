@@ -76,6 +76,8 @@ button:disabled {
 }
 
 .join-shell {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(280px, 420px);
   gap: 48px;
@@ -83,6 +85,244 @@ button:disabled {
   min-height: 100vh;
   margin: 0 auto;
   align-items: center;
+}
+
+.landing-table-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 224, 151, 0.22), transparent 28%),
+    radial-gradient(circle at 88% 16%, rgba(40, 121, 255, 0.18), transparent 26%),
+    radial-gradient(circle at 78% 78%, rgba(208, 15, 57, 0.18), transparent 28%),
+    linear-gradient(135deg, #071511 0%, #0f2d24 44%, #110d17 100%);
+}
+
+.landing-table-bg::before,
+.landing-table-bg::after {
+  content: "";
+  position: absolute;
+  inset: -22%;
+  opacity: 0.58;
+}
+
+.landing-table-bg::before {
+  background:
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 18px),
+    radial-gradient(ellipse at center, transparent 0 48%, rgba(0, 0, 0, 0.54) 78%);
+  animation: velvetSweep 18s linear infinite;
+}
+
+.landing-table-bg::after {
+  background:
+    radial-gradient(circle at 18% 62%, rgba(213, 166, 66, 0.18), transparent 18%),
+    radial-gradient(circle at 60% 34%, rgba(255, 255, 255, 0.13), transparent 24%);
+  animation: lightDrift 12s ease-in-out infinite;
+}
+
+.landing-table {
+  --table-x: 0;
+  --table-rotate: -5deg;
+  position: absolute;
+  top: 50%;
+  right: clamp(-180px, 8vw, 120px);
+  width: min(940px, 88vw);
+  aspect-ratio: 1.62;
+  border: clamp(12px, 2.2vw, 24px) solid #7a4d24;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.12) 0 8%, transparent 18%),
+    repeating-radial-gradient(ellipse at center, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 18px),
+    linear-gradient(135deg, #2ba06d, #0f604a 52%, #074031);
+  box-shadow:
+    inset 0 0 0 7px rgba(255, 218, 135, 0.35),
+    inset 0 0 80px rgba(0, 0, 0, 0.32),
+    0 46px 120px rgba(0, 0, 0, 0.46);
+  transform: translate(var(--table-x), -50%) rotate(var(--table-rotate)) scale(1);
+  animation: tableLoop 14s ease-in-out infinite;
+}
+
+.table-shine {
+  position: absolute;
+  inset: 9%;
+  border-radius: inherit;
+  background:
+    linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.18) 46%, transparent 62%),
+    radial-gradient(ellipse at center, transparent 42%, rgba(0, 0, 0, 0.2) 78%);
+  mix-blend-mode: screen;
+  animation: tableShine 5.6s ease-in-out infinite;
+}
+
+.royal-flush {
+  position: absolute;
+  left: 50%;
+  top: 49%;
+  display: flex;
+  gap: clamp(7px, 1.2vw, 14px);
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 24px 28px rgba(0, 0, 0, 0.28));
+}
+
+.royal-card {
+  --tilt: 0deg;
+  --lift: 0px;
+  --delay: 0s;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: clamp(74px, 8vw, 112px);
+  height: clamp(108px, 11.6vw, 158px);
+  padding: clamp(9px, 1vw, 13px);
+  border: 1px solid rgba(17, 24, 39, 0.2);
+  border-radius: 9px;
+  color: #111827;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(235, 239, 233, 0.98)),
+    #fff;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.82),
+    0 14px 30px rgba(0, 0, 0, 0.28);
+  transform: translateY(var(--lift)) rotate(var(--tilt));
+  animation: royalDeal 8s ease-in-out infinite;
+  animation-delay: var(--delay);
+}
+
+.royal-card span,
+.royal-card small {
+  font-weight: 950;
+  line-height: 1;
+}
+
+.royal-card span {
+  font-size: clamp(20px, 2.2vw, 30px);
+}
+
+.royal-card strong {
+  align-self: center;
+  justify-self: center;
+  font-size: clamp(36px, 4.8vw, 62px);
+  line-height: 1;
+}
+
+.royal-card small {
+  align-self: end;
+  justify-self: end;
+  font-size: clamp(16px, 1.7vw, 22px);
+  transform: rotate(180deg);
+}
+
+.royal-card:nth-child(1) {
+  --tilt: -12deg;
+  --lift: 18px;
+  --delay: 0s;
+}
+
+.royal-card:nth-child(2) {
+  --tilt: -6deg;
+  --lift: 4px;
+  --delay: 0.12s;
+}
+
+.royal-card:nth-child(3) {
+  --tilt: 0deg;
+  --lift: -6px;
+  --delay: 0.24s;
+}
+
+.royal-card:nth-child(4) {
+  --tilt: 6deg;
+  --lift: 4px;
+  --delay: 0.36s;
+}
+
+.royal-card:nth-child(5) {
+  --tilt: 12deg;
+  --lift: 18px;
+  --delay: 0.48s;
+}
+
+.chip-stack {
+  position: absolute;
+  display: grid;
+  gap: 4px;
+  animation: chipBob 4.8s ease-in-out infinite;
+}
+
+.chip-stack span {
+  width: clamp(32px, 4vw, 48px);
+  height: clamp(18px, 2.2vw, 26px);
+  border: 4px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.95) 0 21%, transparent 22%),
+    linear-gradient(90deg, #d20f39, #8b1028);
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.24);
+}
+
+.chip-stack span:nth-child(2) {
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.95) 0 21%, transparent 22%),
+    linear-gradient(90deg, #1463d9, #0b3f91);
+}
+
+.chip-stack span:nth-child(3) {
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.95) 0 21%, transparent 22%),
+    linear-gradient(90deg, #d5a642, #906317);
+}
+
+.stack-left {
+  left: 18%;
+  bottom: 21%;
+}
+
+.stack-right {
+  right: 18%;
+  top: 19%;
+  animation-delay: -1.8s;
+}
+
+.dealer-orbit {
+  position: absolute;
+  inset: 15%;
+  border-radius: inherit;
+  animation: dealerOrbit 9s linear infinite;
+}
+
+.dealer-orbit span {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 32px;
+  border: 2px solid rgba(51, 33, 6, 0.26);
+  border-radius: 999px;
+  color: #332106;
+  background: linear-gradient(135deg, #fff8dd, #d5a642);
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.24);
+  font-size: 12px;
+  font-weight: 950;
+  transform: translateX(-50%);
+}
+
+.join-shell > .brand-block,
+.join-shell > .join-form {
+  position: relative;
+  z-index: 2;
+}
+
+.join-shell .brand-block {
+  color: #fff;
+  text-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+}
+
+.join-shell .brand-block .eyebrow,
+.join-shell .brand-block .subtle {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .brand-block h1 {
@@ -119,6 +359,9 @@ button:disabled {
   display: grid;
   gap: 18px;
   padding: 24px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(16px);
 }
 
 label {
@@ -724,6 +967,100 @@ input:focus {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 
+@keyframes velvetSweep {
+  0% {
+    transform: translate3d(-3%, -2%, 0) rotate(0deg);
+  }
+
+  100% {
+    transform: translate3d(3%, 2%, 0) rotate(360deg);
+  }
+}
+
+@keyframes lightDrift {
+  0%,
+  100% {
+    transform: translate3d(-2%, 1%, 0) scale(1);
+    opacity: 0.42;
+  }
+
+  50% {
+    transform: translate3d(2%, -2%, 0) scale(1.06);
+    opacity: 0.72;
+  }
+}
+
+@keyframes tableLoop {
+  0%,
+  100% {
+    transform: translate(var(--table-x), -50%) rotate(var(--table-rotate)) scale(1);
+  }
+
+  50% {
+    transform: translate(var(--table-x), -51%) rotate(calc(var(--table-rotate) + 2deg)) scale(1.025);
+  }
+}
+
+@keyframes tableShine {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translateX(-8%);
+  }
+
+  48% {
+    opacity: 0.7;
+    transform: translateX(8%);
+  }
+}
+
+@keyframes royalDeal {
+  0%,
+  100% {
+    transform: translateY(var(--lift)) rotate(var(--tilt));
+    filter: brightness(1);
+  }
+
+  18% {
+    transform: translateY(calc(var(--lift) - 13px)) rotate(var(--tilt));
+    filter: brightness(1.1);
+  }
+
+  34% {
+    transform: translateY(var(--lift)) rotate(var(--tilt));
+    filter: brightness(1);
+  }
+}
+
+@keyframes chipBob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+
+  50% {
+    transform: translateY(-12px) rotate(4deg);
+  }
+}
+
+@keyframes dealerOrbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-table-bg::before,
+  .landing-table-bg::after,
+  .landing-table,
+  .table-shine,
+  .royal-card,
+  .chip-stack,
+  .dealer-orbit {
+    animation: none;
+  }
+}
+
 @media (max-width: 980px) {
   .join-shell,
   .table-layout,
@@ -735,6 +1072,21 @@ input:focus {
     align-content: center;
     gap: 24px;
     padding: 24px 0;
+  }
+
+  .landing-table {
+    --table-x: 50%;
+    --table-rotate: -7deg;
+    top: 30%;
+    right: 50%;
+    width: min(820px, 116vw);
+    opacity: 0.86;
+  }
+
+  .join-shell > .brand-block,
+  .join-shell > .join-form {
+    width: min(520px, 100%);
+    justify-self: center;
   }
 
   .table-layout {
@@ -753,6 +1105,51 @@ input:focus {
 }
 
 @media (max-width: 620px) {
+  .join-shell {
+    min-height: 100dvh;
+    padding: 20px 0;
+  }
+
+  .landing-table {
+    top: 25%;
+    width: 138vw;
+    opacity: 0.72;
+  }
+
+  .royal-flush {
+    gap: 5px;
+  }
+
+  .royal-card {
+    width: 56px;
+    height: 82px;
+    padding: 7px;
+  }
+
+  .royal-card span {
+    font-size: 17px;
+  }
+
+  .royal-card strong {
+    font-size: 30px;
+  }
+
+  .royal-card small {
+    font-size: 13px;
+  }
+
+  .chip-stack {
+    opacity: 0.78;
+  }
+
+  .brand-block h1 {
+    font-size: clamp(42px, 15vw, 74px);
+  }
+
+  .join-form {
+    padding: 18px;
+  }
+
   body:has(.game-shell:not(.hidden)) {
     overflow: hidden;
   }
