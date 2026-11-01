@@ -11,10 +11,12 @@ fs.mkdirSync(output, { recursive: true });
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const errors = [];
+  const pages = [];
   try {
     const first = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const second = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const a = await first.newPage(); const b = await second.newPage();
+    pages.push(a, b);
     for (const page of [a, b]) {
       page.on('pageerror', (error) => errors.push(error.message));
       await page.goto(url);
@@ -94,8 +96,11 @@ fs.mkdirSync(output, { recursive: true });
     await b.setViewportSize({ width: 390, height: 844 });
     for (let i = 0; i < 6; i++) {
       const active = await a.evaluate(() => state.game.canAct) ? a : b;
+      const previous = await active.evaluate(() => `${state.game.street}:${state.game.actionSeat}`);
       await active.locator('[data-action="check"]').click();
-      await a.waitForTimeout(120);
+      for (const page of pages) {
+        await page.waitForFunction((before) => `${state.game.street}:${state.game.actionSeat}` !== before, previous, { timeout: 15000 });
+      }
     }
     await a.locator('#gameOverDialog').waitFor({ state: 'visible' });
     await b.locator('#gameOverDialog').waitFor({ state: 'visible' });
@@ -113,6 +118,11 @@ fs.mkdirSync(output, { recursive: true });
     assert.deepEqual(errors, []);
     console.log('PASS: 3D pixels, concealed cards, reconnect, bet/call, all streets, settlement, next hand, rules, exit, desktop/mobile layouts.');
   } finally {
+    for (const page of pages) {
+      if (await page.locator('#exitButton').isVisible().catch(() => false)) {
+        await page.locator('#exitButton').click({ timeout: 3000 }).catch(() => {});
+      }
+    }
     await browser.close();
   }
 })().catch((error) => { console.error(error); process.exitCode = 1; });
