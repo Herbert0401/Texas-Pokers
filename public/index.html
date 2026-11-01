@@ -20,10 +20,12 @@
     <link rel="apple-touch-icon" href="/thumbnail.jpg" />
     <link rel="icon" href="/thumbnail.jpg" type="image/jpeg" />
     <link rel="stylesheet" href="/styles.css?v=20260618-royal-headsup" />
+    <link rel="stylesheet" href="/table-ui.css?v=20261101" />
   </head>
   <body>
     <div id="app">
       <section id="joinView" class="join-shell">
+        <div id="landingScene" class="landing-scene" aria-hidden="true"></div>
         <div class="landing-table-bg" aria-hidden="true">
           <div class="landing-table">
             <div class="table-shine"></div>
@@ -74,6 +76,7 @@
 
         <main class="table-layout">
           <section class="felt">
+            <div id="tableScene" class="table-scene" aria-hidden="true"></div>
             <div id="opponentPanel" class="player-panel opponent"></div>
 
             <div class="board-zone">
@@ -118,7 +121,7 @@
                 <button data-action="allin" type="button">All-in</button>
               </div>
               <div class="custom-row">
-                <input id="customAmount" type="number" min="10" step="10" placeholder="至少10筹码" />
+                <input id="customAmount" aria-label="自定义下注筹码" type="number" min="10" step="10" placeholder="至少10筹码" />
                 <button id="customBet" type="button">下注</button>
               </div>
             </section>
@@ -197,6 +200,7 @@
     </dialog>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=20260604-bankroll-reconnect"></script>
+    <script src="/app.js?v=20261101-3d"></script>
+    <script type="module" src="/table-3d.mjs?v=20261101"></script>
   </body>
 </html>

@@ -12,6 +12,7 @@ Two-player online Short Deck Hold'em table built with Node.js, WebSocket, and a 
 - No small blind or big blind, with dealer position rotating every hand.
 - Each player starts with 1000 chips.
 - Supports fold, check, call, half-pot, two-thirds-pot, pot-size, all-in, and custom chip actions.
+- Three.js 3D table, rounded cards, denomination-based chip stacks, and responsive desktop/mobile controls. Rendering libraries are vendored locally; no CDN is required.
 
 ## Run Locally
 
@@ -31,3 +32,5 @@ Click the Deploy to Render button above, sign in to Render, connect GitHub if pr
 ```bash
 npm test
 ```
+
+For browser verification, start the app and run `node scripts/verify-ui.cjs` with Playwright, pngjs, and Google Chrome available. The default target is `http://localhost:3133`; override it with `TEST_URL`. Screenshots are saved to `output/playwright/` (gitignored). This checks two-player actions, reconnect, settlement, 3D pixels/hover, and mobile layouts.

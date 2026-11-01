@@ -284,6 +284,7 @@ function render() {
 
   exitButton.classList.remove("hidden");
   startButton.classList.toggle("hidden", !state.canStart);
+  updateTablePresentation();
 
   if (state.stage === "lobby") {
     renderLobby();
@@ -772,6 +773,7 @@ function stopKeepAlive() {
 
 function resetToJoin() {
   state = null;
+  updateTablePresentation();
   joinView.classList.remove("hidden");
   gameView.classList.add("hidden");
   exitButton.classList.add("hidden");
@@ -789,4 +791,9 @@ function showToast(message) {
   toast.classList.remove("hidden");
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 3200);
+}
+
+function updateTablePresentation() {
+  window.pokerPresentationState = state;
+  window.dispatchEvent(new CustomEvent("poker:state", { detail: state }));
 }
