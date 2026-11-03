@@ -4,15 +4,15 @@ const path = require("path");
 const crypto = require("crypto");
 const { WebSocket, WebSocketServer } = require("ws");
 const {
-  compareEvaluations,
   evaluateSeven
 } = require("./src/poker");
 const { createDeckForHand } = require("./src/entertainment");
+const { nextSeat, canRaise, settlePots } = require("./src/multiplayer");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STARTING_CHIPS = 1000;
-const MAX_PLAYERS = 2;
+const MAX_PLAYERS = 6;
 const MIN_BET = 10;
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const MAX_MISSED_PONGS = 3;
@@ -185,6 +185,7 @@ function handleMessage(client, message) {
 }
 
 function joinRoom(client, message) {
+  if (client.roomCode) throw new Error("请先退出当前房间。");
   const name = String(message.name || "").trim().slice(0, 18);
   const roomCode = String(message.roomCode || "").trim();
   const requestedPlayerId = String(message.playerId || "");
@@ -216,12 +217,15 @@ function joinRoom(client, message) {
   }
 
   if (room.players.length >= MAX_PLAYERS) throw new Error("这个房间已经满员。");
-  if (room.stage !== "lobby") throw new Error("这局已经开始，请换一个房间密码。");
+  const occupied = new Set(room.players.map(player => player.seat));
+  if (room.game?.street !== "handOver") room.game?.players.forEach(player => occupied.add(player.seat));
+  const seat = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find(i => !occupied.has(i));
+  if (seat === undefined) throw new Error("本手座位暂未释放，请在本手结束后加入。");
 
   const player = {
     id: crypto.randomUUID(),
     name,
-    seat: room.players.length,
+    seat,
     connected: true,
     socket: client.socket,
     sessionToken: crypto.randomUUID(),
@@ -234,13 +238,16 @@ function joinRoom(client, message) {
   client.roomCode = roomCode;
   client.playerId = player.id;
 
+  if (room.game?.street === "handOver") updateGameOver(room);
+
   broadcast(room);
 }
 
 function startGame(client) {
   const room = requireRoom(client);
   requireOwner(room, client.playerId);
-  if (room.players.length !== MAX_PLAYERS) throw new Error("需要两名玩家都进入房间后才能开始。");
+  if (room.stage !== "lobby") throw new Error("游戏已经开始。");
+  if (room.players.filter(player => player.connected).length < 2) throw new Error("至少需要两名在线玩家才能开始。");
 
   room.stage = "playing";
   room.players.forEach((player) => {
@@ -248,7 +255,7 @@ function startGame(client) {
   });
   room.game = {
     handNumber: 0,
-    dealerSeat: 1,
+    dealerSeat: -1,
     deck: [],
     community: [],
     street: "waiting",
@@ -270,10 +277,12 @@ function restartGame(client) {
   const room = requireRoom(client);
   requireOwner(room, client.playerId);
   if (room.stage !== "playing") throw new Error("游戏尚未开始。");
+  if (room.game.street !== "handOver" || !room.game.gameOver) throw new Error("整场结束后才能重新开始。");
+  if (room.players.filter(player => player.connected).length < 2) throw new Error("至少需要两名在线玩家才能开始。");
   room.players.forEach((player) => {
     player.chips = STARTING_CHIPS;
   });
-  room.game.dealerSeat = 1;
+  room.game.dealerSeat = -1;
   room.game.handNumber = 0;
   room.game.gameOver = false;
   beginHand(room);
@@ -283,15 +292,17 @@ function nextHand(client) {
   const room = requireRoom(client);
   const game = requireGame(room);
   if (game.street !== "handOver") throw new Error("当前手牌还没有结束。");
-  if (game.gameOver) throw new Error("有玩家筹码归零，请重新开始整场。");
+  if (game.gameOver) throw new Error("可参与玩家不足两名，请等待加入或重新开始整场。");
   beginHand(room);
 }
 
 function beginHand(room) {
   const game = requireGame(room);
-  const handDeck = createDeckForHand({ entertainmentMode: room.entertainmentMode });
+  const participants = room.players.filter(player => player.connected && player.chips > 0);
+  if (participants.length < 2) throw new Error("至少需要两名有筹码的在线玩家。");
+  const handDeck = createDeckForHand({ entertainmentMode: room.entertainmentMode, playerCount: participants.length });
   game.handNumber += 1;
-  game.dealerSeat = otherSeat(game.dealerSeat);
+  game.dealerSeat = nextSeat(participants, game.dealerSeat);
   game.deck = handDeck.deck;
   game.community = [];
   game.street = "preflop";
@@ -299,13 +310,14 @@ function beginHand(room) {
   game.currentBet = 0;
   game.minRaise = MIN_BET;
   game.result = null;
+  game.gameOver = false;
   game.entertainment = handDeck.entertainment;
   game.history = [`第 ${game.handNumber} 手牌开始，${seatName(room, game.dealerSeat)} 是庄家。`];
   if (room.entertainmentMode) {
     game.history.push("娱乐模式开启：约半数手牌会出现更强听牌和河牌转折。");
   }
 
-  game.players = room.players.map((player) => ({
+  game.players = participants.map((player) => ({
     id: player.id,
     name: player.name,
     seat: player.seat,
@@ -316,10 +328,11 @@ function beginHand(room) {
     folded: false,
     allIn: false,
     hasActed: false,
+    lastActedBet: 0,
     evaluation: null
   }));
 
-  game.actionSeat = nextActionSeat(game, otherSeat(game.dealerSeat));
+  game.actionSeat = nextActionSeat(game, game.dealerSeat);
   broadcast(room);
 }
 
@@ -347,13 +360,14 @@ function playerAction(client, message) {
     player.folded = true;
     player.hasActed = true;
     game.history.push(`${player.name} 弃牌。`);
-    finishByFold(room);
+    afterAction(room);
     return;
   }
 
   if (action === "check") {
     if (toCall > 0) throw new Error("面对下注时不能过牌。");
     player.hasActed = true;
+    player.lastActedBet = game.currentBet;
     game.history.push(`${player.name} 过牌。`);
     afterAction(room);
     return;
@@ -364,23 +378,26 @@ function playerAction(client, message) {
     const committed = Math.min(toCall, player.chips);
     commitChips(game, player, committed);
     player.hasActed = true;
+    player.lastActedBet = game.currentBet;
     game.history.push(`${player.name} 跟注 ${committed}${player.allIn ? "，全下" : ""}。`);
     afterAction(room);
     return;
   }
 
   if (action === "bet") {
-    let amount = Number.parseInt(message.amount, 10);
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error("请输入有效筹码数量。");
+    let amount = Number(message.amount);
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("请输入有效的整数筹码数量。");
     amount = Math.min(amount, player.chips);
     const isAllIn = amount === player.chips;
+    if (amount > toCall && !canRaise(game, player)) throw new Error("当前只能跟注或弃牌，不能再次加注。");
 
     if (toCall === 0) {
-      if (amount < MIN_BET && !isAllIn) throw new Error(`最小下注为 ${MIN_BET}。`);
+      if (amount < game.minRaise && !isAllIn) throw new Error(`最小加注额为 ${game.minRaise}。`);
       commitChips(game, player, amount);
       game.currentBet = player.bet;
-      game.minRaise = Math.max(MIN_BET, amount);
-      markAggression(game, player);
+      const fullRaise = amount >= game.minRaise;
+      if (fullRaise) game.minRaise = amount;
+      markAggression(game, player, fullRaise);
       game.history.push(`${player.name} 下注 ${amount}${player.allIn ? "，全下" : ""}。`);
       afterAction(room);
       return;
@@ -398,11 +415,13 @@ function playerAction(client, message) {
       }
 
       game.currentBet = player.bet;
-      if (raiseSize >= game.minRaise) game.minRaise = raiseSize;
-      markAggression(game, player);
+      const fullRaise = raiseSize >= game.minRaise;
+      if (fullRaise) game.minRaise = raiseSize;
+      markAggression(game, player, fullRaise);
       game.history.push(`${player.name} 加注到 ${player.bet}${player.allIn ? "，全下" : ""}。`);
     } else {
       player.hasActed = true;
+      player.lastActedBet = game.currentBet;
       game.history.push(`${player.name} 跟注 ${amount}${player.allIn ? "，全下" : ""}。`);
     }
 
@@ -431,15 +450,18 @@ function rollbackCommit(game, player, amount) {
   player.allIn = player.chips === 0;
 }
 
-function markAggression(game, aggressor) {
-  game.players.forEach((player) => {
-    player.hasActed = false;
-  });
+function markAggression(game, aggressor, fullRaise) {
+  if (fullRaise) game.players.forEach((player) => { player.hasActed = false; });
   aggressor.hasActed = true;
+  aggressor.lastActedBet = game.currentBet;
 }
 
-function afterAction(room) {
+function afterAction(room, preserveTurn = false) {
   const game = requireGame(room);
+  if (activePlayers(game).length === 1) {
+    finishByFold(room);
+    return;
+  }
 
   if (activePlayers(game).every((player) => player.allIn)) {
     runOutBoard(game);
@@ -458,7 +480,9 @@ function afterAction(room) {
     return;
   }
 
-  game.actionSeat = nextActionSeat(game, otherSeat(game.actionSeat));
+  if (!preserveTurn || !game.players.some(player => player.seat === game.actionSeat && !player.folded && !player.allIn)) {
+    game.actionSeat = nextActionSeat(game, game.actionSeat);
+  }
   broadcast(room);
 }
 
@@ -467,6 +491,7 @@ function advanceStreet(room) {
   game.players.forEach((player) => {
     player.bet = 0;
     player.hasActed = false;
+    player.lastActedBet = 0;
   });
   game.currentBet = 0;
   game.minRaise = MIN_BET;
@@ -488,14 +513,14 @@ function advanceStreet(room) {
     return;
   }
 
-  const nextSeat = nextActionSeat(game, otherSeat(game.dealerSeat));
-  if (nextSeat === null) {
+  const actionSeat = nextActionSeat(game, game.dealerSeat);
+  if (actionSeat === null) {
     runOutBoard(game);
     finishByShowdown(room);
     return;
   }
 
-  game.actionSeat = nextSeat;
+  game.actionSeat = actionSeat;
   broadcast(room);
 }
 
@@ -508,20 +533,20 @@ function runOutBoard(game) {
 function finishByFold(room) {
   const game = requireGame(room);
   const winner = activePlayers(game)[0];
-  const amount = game.pot;
-  winner.chips += amount;
+  const settlement = settlePots(game);
+  const amount = settlement.winners.reduce((sum, item) => sum + item.amount, 0);
   game.pot = 0;
   game.street = "handOver";
   game.actionSeat = null;
   game.result = {
     type: "fold",
-    winners: [{ seat: winner.seat, name: winner.name, amount }],
+    ...settlement,
     text: `${winner.name} 赢得 ${amount} 筹码。`
   };
   game.history.push(game.result.text);
   attachEntertainmentSummary(game);
   syncRoomChips(room);
-  updateGameOver(game);
+  updateGameOver(room);
   attachGameOverSummary(game);
   broadcast(room);
 }
@@ -529,74 +554,43 @@ function finishByFold(room) {
 function finishByShowdown(room) {
   const game = requireGame(room);
   runOutBoard(game);
-  normalizeShowdownPot(game);
 
   for (const player of activePlayers(game)) {
     player.evaluation = evaluateSeven([...player.holeCards, ...game.community]);
   }
 
-  const contenders = activePlayers(game);
-  const best = contenders.reduce((currentBest, player) => {
-    if (!currentBest) return player;
-    return compareEvaluations(player.evaluation, currentBest.evaluation) > 0 ? player : currentBest;
-  }, null);
-  const winners = contenders.filter((player) => compareEvaluations(player.evaluation, best.evaluation) === 0);
-  const share = Math.floor(game.pot / winners.length);
-  let remainder = game.pot % winners.length;
-  const resultWinners = [];
-
-  for (const winner of winners) {
-    const amount = share + (remainder > 0 ? 1 : 0);
-    remainder -= 1;
-    winner.chips += amount;
-    resultWinners.push({ seat: winner.seat, name: winner.name, amount, hand: winner.evaluation.label });
-  }
-
-  const resultText = winners.length === 1
-    ? `${winners[0].name} 以 ${winners[0].evaluation.label} 赢得 ${game.pot} 筹码。`
-    : `双方 ${winners[0].evaluation.label} 平分底池 ${game.pot}。`;
+  const settlement = settlePots(game);
+  const resultText = settlement.winners.map(winner => `${winner.name} 以 ${winner.hand} 赢得 ${winner.amount} 筹码`).join("；") + "。";
 
   game.pot = 0;
   game.street = "handOver";
   game.actionSeat = null;
   game.result = {
     type: "showdown",
-    winners: resultWinners,
+    ...settlement,
     text: resultText
   };
   game.history.push(resultText);
   attachEntertainmentSummary(game);
   syncRoomChips(room);
-  updateGameOver(game);
+  updateGameOver(room);
   attachGameOverSummary(game);
   broadcast(room);
 }
 
-function normalizeShowdownPot(game) {
-  const contenders = activePlayers(game);
-  if (contenders.length !== 2) return;
-  const [a, b] = contenders;
-  if (a.totalBet === b.totalBet) return;
-
-  const bigger = a.totalBet > b.totalBet ? a : b;
-  const smaller = bigger === a ? b : a;
-  const refund = bigger.totalBet - smaller.totalBet;
-  bigger.totalBet -= refund;
-  bigger.chips += refund;
-  game.pot -= refund;
-  game.history.push(`${bigger.name} 未被跟注的 ${refund} 筹码退回。`);
-}
-
-function updateGameOver(game) {
-  game.gameOver = game.players.some((player) => player.chips <= 0);
+function updateGameOver(room) {
+  room.game.gameOver = room.players.filter(player => player.chips > 0).length < 2;
+  if (!room.game.gameOver && room.game.result) delete room.game.result.gameOver;
 }
 
 function attachGameOverSummary(game) {
-  if (!game.gameOver || !game.result) return;
+  if (!game.result) return;
+  game.result.eliminated = game.players.filter(player => player.chips === 0).map(player => player.name);
+  if (!game.gameOver) return;
   const ranked = game.players.slice().sort((a, b) => b.chips - a.chips);
   const winner = ranked[0];
   const loser = ranked[ranked.length - 1];
-  const text = `${winner.name} 获胜，${loser.name} 筹码归零。`;
+  const text = loser.chips === 0 ? `${winner.name} 获胜，其余可参与玩家筹码归零。` : "可参与玩家不足两名，等待新玩家或重新开始。";
 
   game.result.gameOver = {
     winner: { seat: winner.seat, name: winner.name, chips: winner.chips },
@@ -647,17 +641,9 @@ function activePlayers(game) {
   return game.players.filter((player) => !player.folded);
 }
 
-function nextActionSeat(game, startSeat) {
-  for (let offset = 0; offset < MAX_PLAYERS; offset += 1) {
-    const seat = (startSeat + offset) % MAX_PLAYERS;
-    const player = game.players.find((item) => item.seat === seat);
-    if (player && !player.folded && !player.allIn) return seat;
-  }
-  return null;
-}
-
-function otherSeat(seat) {
-  return seat === 0 ? 1 : 0;
+function nextActionSeat(game, afterSeat) {
+  return nextSeat(game.players, afterSeat, player => !player.folded && !player.allIn
+    && (!player.hasActed || player.bet < game.currentBet));
 }
 
 function draw(game) {
@@ -676,10 +662,11 @@ function publicState(room, viewerId) {
       roomCode: room.code,
       stage: room.stage,
       startingChips: STARTING_CHIPS,
+      maxPlayers: MAX_PLAYERS,
       entertainmentMode: Boolean(room.entertainmentMode),
       you: viewerId,
       isOwner: room.ownerId === viewerId,
-      canStart: room.stage === "lobby" && room.ownerId === viewerId && room.players.length === MAX_PLAYERS,
+      canStart: room.stage === "lobby" && room.ownerId === viewerId && room.players.filter(player => player.connected).length >= 2,
       sessionToken: viewer?.sessionToken || null,
       players: room.players.map((player) => ({
         id: player.id,
@@ -687,6 +674,7 @@ function publicState(room, viewerId) {
         seat: player.seat,
         connected: player.connected,
         chips: player.chips,
+        waiting: Boolean(game && !game.players.some(item => item.id === player.id)),
         isOwner: room.ownerId === player.id
       })),
       game: game ? publicGameState(room, game, viewer) : null
@@ -697,11 +685,11 @@ function publicState(room, viewerId) {
 function publicGameState(room, game, viewer) {
   const viewerGamePlayer = game.players.find((player) => player.id === viewer?.id);
   const toCall = viewerGamePlayer ? Math.max(0, game.currentBet - viewerGamePlayer.bet) : 0;
-  const canAct = viewerGamePlayer
+  const canAct = Boolean(viewerGamePlayer
     && game.actionSeat === viewerGamePlayer.seat
     && !viewerGamePlayer.folded
     && !viewerGamePlayer.allIn
-    && game.street !== "handOver";
+    && game.street !== "handOver");
 
   return {
     handNumber: game.handNumber,
@@ -716,9 +704,10 @@ function publicGameState(room, game, viewer) {
     actionSeat: game.actionSeat,
     toCall,
     canAct,
+    canRaise: canAct && canRaise(game, viewerGamePlayer),
     gameOver: game.gameOver,
-    canNextHand: game.street === "handOver" && !game.gameOver,
-    canRestart: room.ownerId === viewer?.id && game.street === "handOver" && game.gameOver,
+    canNextHand: game.street === "handOver" && !game.gameOver && room.players.filter(player => player.connected && player.chips > 0).length >= 2,
+    canRestart: room.ownerId === viewer?.id && game.street === "handOver" && game.gameOver && room.players.filter(player => player.connected).length >= 2,
     result: game.result,
     entertainment: {
       enabled: Boolean(room.entertainmentMode),
@@ -738,6 +727,7 @@ function publicGameState(room, game, viewer) {
         totalBet: player.totalBet,
         folded: player.folded,
         allIn: player.allIn,
+        left: Boolean(player.left),
         dealer: player.seat === game.dealerSeat,
         isTurn: player.seat === game.actionSeat,
         isYou: isViewer,
@@ -797,7 +787,7 @@ function loadPersistedRooms() {
           ...player,
           connected: false,
           socket: null,
-          disconnectedAt: now
+          disconnectedAt: player.connected ? now : player.disconnectedAt || now
         }))
       };
       if (!room.code || !room.players?.length) continue;
@@ -877,18 +867,26 @@ function leaveRoom(roomCode, playerId, sessionToken) {
   }
 
   room.players = room.players.filter((item) => item.id !== playerId);
-  reseatPlayers(room);
-  room.ownerId = room.players[0]?.id || null;
+  if (room.ownerId === playerId) room.ownerId = room.players.find(item => item.connected)?.id || room.players[0]?.id || null;
 
   if (room.players.length === 0) {
     rooms.delete(room.code);
+    clearTimeout(room.cleanupTimer);
     persistRooms();
     return;
   }
 
-  if (room.stage !== "lobby") {
-    room.stage = "lobby";
-    room.game = null;
+  if (room.game) {
+    const gamePlayer = room.game.players.find(item => item.id === playerId);
+    if (gamePlayer) gamePlayer.left = true;
+    if (room.game.street !== "handOver" && gamePlayer && !gamePlayer.folded && !gamePlayer.allIn) {
+      gamePlayer.folded = true;
+      gamePlayer.hasActed = true;
+      room.game.history.push(`${gamePlayer.name} 退出，本手弃牌。`);
+      afterAction(room, room.game.actionSeat !== gamePlayer.seat);
+      return;
+    }
+    if (room.game.street === "handOver") updateGameOver(room);
   }
 
   broadcast(room);
@@ -943,10 +941,16 @@ function reconnectPlayer(room, player, client) {
 
 function scheduleRoomCleanup(room) {
   if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
+  const deadlines = room.players.filter(player => !player.connected && player.disconnectedAt)
+    .map(player => player.disconnectedAt + RECONNECT_WINDOW_MS);
+  if (!deadlines.length) return;
   room.cleanupTimer = setTimeout(() => {
     cleanupExpiredPlayers(room);
-    if (rooms.has(room.code)) broadcast(room);
-  }, RECONNECT_WINDOW_MS + 250);
+    if (rooms.has(room.code)) {
+      broadcast(room);
+      scheduleRoomCleanup(room);
+    }
+  }, Math.max(0, Math.min(...deadlines) - Date.now()) + 250);
   if (typeof room.cleanupTimer.unref === "function") room.cleanupTimer.unref();
 }
 
@@ -960,30 +964,7 @@ function cleanupExpiredPlayers(room) {
     && now - player.disconnectedAt >= RECONNECT_WINDOW_MS
   );
 
-  if (!activeRoom.players.some((player) => player.connected)) {
-    if (activeRoom.players.every(expired)) {
-      rooms.delete(activeRoom.code);
-      persistRooms();
-    }
-    return;
-  }
-
-  if (activeRoom.stage !== "lobby") return;
-  const remainingPlayers = activeRoom.players.filter((player) => !expired(player));
-  if (remainingPlayers.length !== activeRoom.players.length) {
-    activeRoom.players = remainingPlayers;
-    reseatPlayers(activeRoom);
-    if (!activeRoom.players.some((player) => player.id === activeRoom.ownerId)) {
-      activeRoom.ownerId = activeRoom.players[0]?.id || null;
-    }
-  }
-}
-
-function reseatPlayers(room) {
-  room.players = room.players.map((player, seat) => ({
-    ...player,
-    seat
-  }));
+  for (const player of activeRoom.players.filter(expired)) leaveRoom(room.code, player.id, player.sessionToken);
 }
 
 function seatName(room, seat) {

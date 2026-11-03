@@ -43,6 +43,8 @@ let socket;
 let state;
 let toastTimer;
 let shownResultKey = null;
+let pendingSettlement = null;
+let settlementTimer = null;
 let leavingPage = false;
 let reconnectTimer = null;
 let reconnectDelay = 1200;
@@ -183,6 +185,7 @@ attemptReconnect();
 
 window.addEventListener("online", () => scheduleReconnect(250));
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden && pendingSettlement) finishSettlement();
   if (!document.hidden) scheduleReconnect(250);
 });
 
@@ -201,11 +204,10 @@ function connect() {
     lastServerMessageAt = Date.now();
     const payload = JSON.parse(event.data);
     if (payload.type === "state") {
-      state = payload.state;
       reconnectDelay = 1200;
       window.clearTimeout(reconnectTimer);
       reconnectTimer = null;
-      render();
+      receiveState(payload.state);
     }
     if (payload.type === "notice") {
       showToast(payload.text);
@@ -274,6 +276,48 @@ function exitRoom() {
   showToast("已退出房间。");
 }
 
+function cancelSettlement() {
+  window.clearTimeout(settlementTimer);
+  settlementTimer = null;
+  pendingSettlement = null;
+}
+
+function finishSettlement() {
+  const finalState = pendingSettlement?.finalState;
+  cancelSettlement();
+  if (finalState) {
+    state = finalState;
+    render();
+  }
+}
+
+function receiveState(next) {
+  const key = next.game?.result ? `${next.roomCode}:${next.game.handNumber}:${next.game.result.text}` : null;
+  if (key && pendingSettlement?.key === key) {
+    pendingSettlement.finalState = next;
+    return;
+  }
+  cancelSettlement();
+  const animate = !document.hidden && document.body.classList.contains("three-ready")
+    && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const frames = animate ? PokerPresentation.settlementFrames(state, next) : [];
+  if (!frames.length) {
+    state = next;
+    render();
+    return;
+  }
+  const sequence = { key, finalState: next };
+  pendingSettlement = sequence;
+  const advance = (index) => {
+    if (pendingSettlement !== sequence) return;
+    if (index === frames.length) return finishSettlement();
+    state = frames[index].state;
+    render();
+    settlementTimer = window.setTimeout(() => advance(index + 1), frames[index].duration);
+  };
+  advance(0);
+}
+
 function render() {
   saveCurrentSession();
   joinView.classList.add("hidden");
@@ -284,27 +328,24 @@ function render() {
 
   exitButton.classList.remove("hidden");
   startButton.classList.toggle("hidden", !state.canStart);
-  updateTablePresentation();
-
   if (state.stage === "lobby") {
     renderLobby();
+    updateTablePresentation();
     return;
   }
 
   renderGame();
+  updateTablePresentation();
 }
 
 function renderLobby() {
-  tableTitle.textContent = state.players.length === 2 ? "房主可以开始游戏" : "等待第二名玩家";
+  tableTitle.textContent = state.players.length >= 2 ? `${state.players.length} 人已入座` : "等待第二名玩家";
   potText.textContent = "底池 0";
   streetBadge.textContent = "大厅";
   communityCards.replaceChildren(...Array.from({ length: 5 }, () => renderPlaceholder()));
-  statusText.textContent = state.players.length === 2 ? "两名玩家已就位，等待房主开始。" : "把四位房间密码发给对手，对方输入同样密码即可加入。";
-  heroPanel.replaceChildren(renderEmptySeat("你的座位"));
-  opponentPanel.replaceChildren(renderEmptySeat("对手座位"));
-  heroPanel.classList.remove("your-turn");
-  opponentPanel.classList.remove("active-turn");
-  actionHint.textContent = state.isOwner ? "两人到齐后你可以开始游戏。" : "等待房主开始游戏。";
+  statusText.textContent = state.players.length >= 2 ? "等待房主开始。" : "等待其他玩家入座。";
+  renderSeats();
+  actionHint.textContent = state.isOwner ? "至少两人在线即可开始。" : "等待房主开始游戏。";
   historyList.replaceChildren();
   nextHandButton.classList.add("hidden");
   restartButton.classList.add("hidden");
@@ -314,17 +355,13 @@ function renderLobby() {
 function renderGame() {
   const game = state.game;
   const hero = heroPlayer();
-  const opponent = opponentPlayer();
 
   const title = game.street === "handOver" ? `第 ${game.handNumber} 手牌结束` : `第 ${game.handNumber} 手`;
   tableTitle.textContent = state.entertainmentMode ? `${title} · 娱乐模式` : title;
   potText.textContent = `底池 ${game.pot}`;
   streetBadge.textContent = STREET_LABELS[game.street] || game.street;
   communityCards.replaceChildren(...renderCommunity(game.community));
-  heroPanel.classList.toggle("your-turn", Boolean(hero?.isTurn));
-  opponentPanel.classList.toggle("active-turn", Boolean(opponent?.isTurn));
-  heroPanel.replaceChildren(renderPlayerPanel(hero));
-  opponentPanel.replaceChildren(renderPlayerPanel(opponent));
+  renderSeats();
   nextHandButton.classList.toggle("hidden", !game.canNextHand);
   restartButton.classList.toggle("hidden", !game.canRestart);
   renderStatus(game);
@@ -333,26 +370,59 @@ function renderGame() {
   maybeShowHandResult(game);
 }
 
+function renderSeats() {
+  const roster = (state.game?.players || []).filter(player => !player.left).slice();
+  for (const player of state.players) {
+    if (!roster.some(item => item.id === player.id)) roster.push({ ...player, isYou: player.id === state.you, waiting: true, totalBet: 0 });
+  }
+  const hero = roster.find(player => player.isYou);
+  const opponents = roster.filter(player => !player.isYou);
+  document.querySelector('.felt').classList.toggle('multiplayer', roster.length > 2);
+  document.querySelector('.felt').dataset.seats = String(roster.length);
+  document.querySelector('#gameView').classList.toggle('multiplayer-game', roster.length > 2);
+  document.querySelectorAll('.extra-seat').forEach(node => node.remove());
+  const fill = (panel, player) => {
+    panel.removeAttribute('style');
+    panel.dataset.playerId = player?.id || '';
+    panel.classList.toggle('your-turn', Boolean(player?.isYou && player.isTurn));
+    panel.classList.toggle('active-turn', Boolean(!player?.isYou && player?.isTurn));
+    panel.classList.toggle('folded-seat', Boolean(player?.folded));
+    panel.replaceChildren(player ? renderPlayerPanel(player) : renderEmptySeat('空座'));
+  };
+  fill(heroPanel, hero);
+  fill(opponentPanel, opponents[0]);
+  for (const player of opponents.slice(1)) {
+    const panel = document.createElement('div');
+    panel.className = 'player-panel extra-seat';
+    fill(panel, player);
+    heroPanel.parentElement.append(panel);
+  }
+}
+
 function renderPlayers() {
   const items = state.players.map((player) => {
     const livePlayer = state.game?.players?.find((item) => item.id === player.id);
     const chips = livePlayer?.chips ?? player.chips;
     const node = document.createElement("div");
     node.className = "player-list-item";
+    node.classList.toggle('list-turn', Boolean(livePlayer?.isTurn));
     const title = document.createElement("strong");
     title.textContent = `${player.name}${player.isOwner ? " · 房主" : ""}`;
     const meta = document.createElement("span");
     meta.textContent = player.id === state.you
-      ? `${chips} 筹码 · ${waterlineLabel(chips)}`
+      ? `${chips} 筹码 · ${waterlineLabel(livePlayer || player)}`
       : `${chips} 筹码`;
+    const eliminated = chips === 0 && (!livePlayer || state.game?.street === 'handOver');
+    const status = !player.connected ? ' · 离线保留' : eliminated ? ' · 已出局' : player.waiting ? ' · 下手入座' : '';
+    meta.textContent += status;
     node.append(title, meta);
     return node;
   });
 
-  while (items.length < 2) {
+  if (items.length < (state.maxPlayers || 6)) {
     const empty = document.createElement("div");
     empty.className = "player-list-item";
-    empty.innerHTML = "<strong>空座</strong><span>等待中</span>";
+    empty.innerHTML = "<strong>空座</strong><span>等待加入</span>";
     items.push(empty);
   }
 
@@ -370,6 +440,10 @@ function renderModeControls() {
 }
 
 function renderStatus(game) {
+  if (game.presentation) {
+    statusText.textContent = game.presentation;
+    return;
+  }
   if (game.result) {
     const base = game.result.gameOver?.text || (game.gameOver ? `${game.result.text} 有玩家筹码归零，可重新开始整场。` : game.result.text);
     statusText.textContent = game.result.entertainment?.text ? `${base} ${game.result.entertainment.text}` : base;
@@ -391,38 +465,39 @@ function renderActions(game, hero) {
   const minBet = game.minBet || DEFAULT_MIN_BET;
   const label = canAct
     ? toCall > 0
-      ? `需要跟注 ${toCall}。可弃牌、跟注、加注或全下。`
+      ? `需要跟注 ${toCall}。${game.canRaise === false ? '可跟注或弃牌。' : '可弃牌、跟注、加注或全下。'}`
       : `你可以过牌，也可以下注，最低投入 ${minBet} 筹码。`
-    : "等待对手行动。";
-  actionHint.textContent = game.street === "handOver" ? "本手牌已结束。" : label;
+    : !hero ? (state.players.find(player => player.id === state.you)?.chips > 0 ? "已入座，将从下一手参与。" : "筹码已归零，正在观战。")
+      : `等待 ${game.players.find(player => player.isTurn)?.name || '其他玩家'} 行动。`;
+  actionHint.textContent = game.presentation ? "本手已结束，正在摊牌。" : game.street === "handOver" ? "本手牌已结束。" : label;
 
   setControlsEnabled(canAct);
   quickActions.querySelector('[data-action="check"]').disabled = !canAct || toCall > 0;
   quickActions.querySelector('[data-action="call"]').disabled = !canAct || toCall <= 0;
-  quickActions.querySelector('[data-action="fold"]').disabled = !canAct || toCall <= 0;
+  quickActions.querySelector('[data-action="fold"]').disabled = !canAct;
 
   const minBetButton = quickActions.querySelector('[data-action="betMin"]');
   minBetButton.textContent = `下注${minBet}`;
-  minBetButton.disabled = !canAct || toCall > 0 || hero.chips < minBet;
+  minBetButton.disabled = !canAct || game.canRaise === false || toCall > 0 || hero.chips < minBet;
 
   quickActions.querySelectorAll("[data-bb]").forEach((button) => {
     const bb = Number(button.dataset.bb);
     const action = calculateBbAction(bb);
     button.textContent = `${bb}BB · ${action.target}`;
-    button.disabled = !canAct || action.amount <= 0 || hero.chips <= 0;
+    button.disabled = !canAct || action.amount <= 0 || hero.chips <= 0 || game.canRaise === false && action.amount > toCall;
   });
 
   quickActions.querySelectorAll("[data-fraction]").forEach((button) => {
     const amount = calculatePotBet(Number(button.dataset.fraction));
     button.textContent = `${button.dataset.fraction === "0.667" ? "2/3" : Number(button.dataset.fraction) === 1 ? "满" : "1/2"}池 · ${amount}`;
-    button.disabled = !canAct || amount <= 0 || hero.chips <= 0;
+    button.disabled = !canAct || amount <= 0 || hero.chips <= 0 || game.canRaise === false && amount > toCall;
   });
 
   const allIn = quickActions.querySelector('[data-action="allin"]');
   allIn.textContent = `All-in · ${hero?.chips || 0}`;
-  allIn.disabled = !canAct || hero.chips <= 0;
-  customBet.disabled = !canAct;
-  customAmount.disabled = !canAct;
+  allIn.disabled = !canAct || hero.chips <= 0 || game.canRaise === false && hero.chips > toCall;
+  customBet.disabled = !canAct || game.canRaise === false;
+  customAmount.disabled = customBet.disabled;
   customAmount.min = String(toCall > 0 ? toCall : minBet);
   customAmount.step = String(minBet);
   customAmount.placeholder = toCall > 0 ? "跟注或加注筹码" : `至少${minBet}筹码`;
@@ -461,6 +536,7 @@ function renderPlayerPanel(player) {
   const name = document.createElement("span");
   name.className = "player-name";
   name.textContent = player.isYou ? `${player.name}（你）` : player.name;
+  name.title = name.textContent;
   nameRow.append(name);
 
   if (player.dealer) {
@@ -479,11 +555,11 @@ function renderPlayerPanel(player) {
 
   const chipRow = document.createElement("div");
   chipRow.className = "chip-row";
-  chipRow.innerHTML = `<span>筹码 ${player.chips}</span><span>本轮 ${player.bet}</span>${player.allIn ? "<span>All-in</span>" : ""}${player.folded ? "<span>已弃牌</span>" : ""}`;
+  chipRow.innerHTML = `<span>筹码 ${player.chips}</span><span>${player.waiting ? player.chips === 0 ? '已出局' : state.game ? '下手入座' : '等待开局' : `本手投入 ${player.totalBet}`}</span>${player.allIn ? "<span>All-in</span>" : ""}${player.folded ? "<span>已弃牌</span>" : ""}`;
 
   const waterline = document.createElement("div");
-  waterline.className = `waterline-row ${waterlineClass(player.chips)}`;
-  waterline.textContent = player.isYou ? waterlineText(player.chips) : "";
+  waterline.className = `waterline-row ${waterlineClass(player)}`;
+  waterline.textContent = player.isYou ? waterlineText(player) : "";
 
   const handLabel = document.createElement("div");
   handLabel.className = "chip-row";
@@ -497,7 +573,7 @@ function renderPlayerPanel(player) {
   cards.className = "card-row";
   if (player.holeCards) {
     cards.replaceChildren(...player.holeCards.map(renderCard));
-  } else {
+  } else if (!player.waiting) {
     cards.replaceChildren(renderBackCard(), renderBackCard());
   }
 
@@ -562,27 +638,23 @@ function heroPlayer() {
   return state?.game?.players.find((player) => player.isYou);
 }
 
-function opponentPlayer() {
-  return state?.game?.players.find((player) => !player.isYou);
-}
-
 function startingChips() {
   return state?.game?.startingChips || state?.startingChips || DEFAULT_STARTING_CHIPS;
 }
 
-function waterlineText(chips) {
-  return `${waterlineLabel(chips)} 筹码`;
+function waterlineText(player) {
+  return `${waterlineLabel(player)} 筹码`;
 }
 
-function waterlineLabel(chips) {
-  const delta = chips - startingChips();
+function waterlineLabel(player) {
+  const delta = PokerPresentation.settledBankroll(player, state?.game) - startingChips();
   if (delta > 0) return `水上 +${delta}`;
   if (delta < 0) return `水下 ${Math.abs(delta)}`;
   return "持平 0";
 }
 
-function waterlineClass(chips) {
-  const delta = chips - startingChips();
+function waterlineClass(player) {
+  const delta = PokerPresentation.settledBankroll(player, state?.game) - startingChips();
   if (delta > 0) return "up";
   if (delta < 0) return "down";
   return "even";
@@ -629,18 +701,23 @@ function calculateMinimumBet() {
 function maybeShowHandResult(game) {
   if (!game.result) {
     if (gameOverDialog.open) gameOverDialog.close();
+    shownResultKey = null;
     return;
   }
 
   const key = `${game.handNumber}:${game.result.text}`;
-  if (shownResultKey === key) return;
+  const shouldOpen = shownResultKey !== key;
   shownResultKey = key;
 
   const summary = game.result.gameOver;
   const winners = new Set((game.result.winners || []).map((winner) => winner.seat));
   resultEyebrow.textContent = summary ? "Game Over" : "Hand Result";
   gameOverTitle.textContent = summary ? `${summary.winner.name} 获胜` : "本局结算";
-  gameOverText.textContent = [summary?.text || game.result.text, game.result.entertainment?.text]
+  const potDetails = (game.result.pots || []).length > 1 ? game.result.pots.map((pot, index) =>
+    `${index === 0 ? '主池' : `边池${index}`} ${pot.amount}：${pot.winners.map(winner => `${winner.name} +${winner.amount}`).join('、')}`).join('；') : '';
+  const refunds = (game.result.refunds || []).map(refund => `${refund.name} 退回未跟注 ${refund.amount}`).join('；');
+  const eliminated = game.result.eliminated?.length ? `${game.result.eliminated.join('、')} 筹码归零。` : '';
+  gameOverText.textContent = [game.result.text, summary?.text, potDetails, refunds, eliminated, game.result.entertainment?.text]
     .filter(Boolean)
     .join(" ");
   resultCommunity.replaceChildren(...renderCommunity(game.community).filter((node) => !node.classList.contains("placeholder")));
@@ -648,6 +725,7 @@ function maybeShowHandResult(game) {
   resultNextHand.classList.toggle("hidden", !game.canNextHand);
   resultRestart.classList.toggle("hidden", !game.canRestart);
 
+  if (!shouldOpen) return;
   if (typeof gameOverDialog.showModal === "function" && !gameOverDialog.open) {
     gameOverDialog.showModal();
   } else if (!gameOverDialog.open) {
@@ -772,6 +850,8 @@ function stopKeepAlive() {
 }
 
 function resetToJoin() {
+  cancelSettlement();
+  shownResultKey = null;
   state = null;
   updateTablePresentation();
   joinView.classList.remove("hidden");

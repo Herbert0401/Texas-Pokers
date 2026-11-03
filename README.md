@@ -2,12 +2,16 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Herbert0401/Texas-Pokers)
 
-Two-player online Short Deck Hold'em table built with Node.js, WebSocket, and a static browser client.
+Online Short Deck Hold'em for 2-6 players, built with Node.js, WebSocket, and a static browser client.
 
 ## Features
 
-- Two players enter the same room with a four-digit code.
-- The room owner starts the game after both players join.
+- Players enter the same room with a four-digit code; seats open automatically up to six.
+- The room owner starts once at least two players are online.
+- Mid-hand arrivals wait for the next hand without changing existing cards, stacks or bets.
+- Leaving folds the player's live hand (an all-in remains eligible). Refresh/reconnect preserves the hand for ten minutes.
+- Main and side pots settle separately, with unmatched wagers refunded and odd chips awarded clockwise after the dealer.
+- Busted players watch while remaining players continue. The owner can reset stacks only after the match ends.
 - Short Deck rules: 36-card deck, A-6-7-8-9 low straight, flush beats full house.
 - No small blind or big blind, with dealer position rotating every hand.
 - Each player starts with 1000 chips.
@@ -34,3 +38,7 @@ npm test
 ```
 
 For browser verification, start the app and run `node scripts/verify-ui.cjs` with Playwright, pngjs, and Google Chrome available. The default target is `http://localhost:3133`; override it with `TEST_URL`. Screenshots are saved to `output/playwright/` (gitignored). This checks two-player actions, reconnect, settlement, 3D pixels/hover, and mobile layouts.
+
+Run `node scripts/verify-multiplayer.cjs` for 20 complete four-player hands in isolated browser sessions. It starts and stops its own test server and saves per-hand actions, payouts, screenshots and errors in `output/playwright/multiplayer/`. It checks conservation of 4000 chips, private cards, dealer rotation, mobile layouts, side pots and mid-hand refresh recovery. `npm test` also covers short all-in raise rights, late joining/leaving and restoration after a server restart.
+
+The existing short-deck hand evaluator is unchanged. Multiplayer betting follows the [Poker TDA side-pot and re-opening rules](https://www.pokertda.com/view-poker-tda-rules/); the no-blind structure remains a house rule. Entertainment mode remains opt-in for the whole room; its scripted pair is assigned randomly among the seats, while extra hands are dealt from the remaining deck.

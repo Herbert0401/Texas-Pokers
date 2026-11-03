@@ -33,7 +33,7 @@ const DRAMATIC_HAND_SCRIPTS = [
   }
 ];
 
-function createDeckForHand({ entertainmentMode = false } = {}) {
+function createDeckForHand({ entertainmentMode = false, playerCount = 2 } = {}) {
   if (!entertainmentMode || Math.random() >= 0.5) {
     return {
       deck: shuffle(createDeck()),
@@ -45,12 +45,19 @@ function createDeckForHand({ entertainmentMode = false } = {}) {
     };
   }
 
-  return buildDramaticDeck();
+  return buildDramaticDeck(undefined, { playerCount });
 }
 
-function buildDramaticDeck(script = randomScript(), { swapSeats = Math.random() < 0.5 } = {}) {
+function buildDramaticDeck(script = randomScript(), { swapSeats = Math.random() < 0.5, playerCount = 2 } = {}) {
   const sequence = script.sequence.map(cardFromToken);
-  const drawSequence = swapSeats ? swapPlayerHoleCards(sequence) : sequence;
+  let drawSequence = swapSeats ? swapPlayerHoleCards(sequence) : sequence;
+  if (playerCount > 2) {
+    const reserved = new Set(sequence.map(cardKey));
+    const extra = shuffle(createDeck().filter(card => !reserved.has(cardKey(card)))).slice(0, (playerCount - 2) * 2);
+    const hands = [drawSequence.slice(0, 2), drawSequence.slice(2, 4)];
+    for (let i = 0; i < extra.length; i += 2) hands.push(extra.slice(i, i + 2));
+    drawSequence = [...shuffle(hands).flat(), ...drawSequence.slice(4)];
+  }
 
   return {
     deck: stackDrawSequence(drawSequence),

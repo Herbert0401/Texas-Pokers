@@ -9,12 +9,17 @@
   --felt-dark: #173f39;
   --gold: #d7be82;
   --danger: #c64157;
+  --spades: #080e18;
+  --hearts: #b00028;
+  --diamonds: #003fa8;
+  --clubs: #005c2c;
 }
 
 body { background: #101617; color: var(--ink); }
 button, input { border-radius: 6px; }
 button svg { flex-shrink: 0; vertical-align: middle; margin-right: 6px; }
 .icon-button svg { margin: 0; }
+#soundButton svg { margin: 0; }
 button { background: #2a3537; color: #eef4f1; border: 1px solid #41504f; font-weight: 650; }
 button:hover:not(:disabled) { background: #3b4b4a; box-shadow: none; }
 button:disabled { opacity: .36; }
@@ -52,6 +57,7 @@ input::placeholder { color: #85948f; }
 .felt { min-height: 600px; height: calc(100svh - 128px); border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; overflow: hidden; display: block; }
 .table-scene { position: absolute; inset: 0; z-index: 0; }
 .table-scene canvas { display: block; width: 100%; height: 100%; }
+.hero-bankroll { position: absolute; right: 8%; bottom: 18%; padding: 4px 8px; color: #fff5cf; background: #102922e8; border: 1px solid #9b8b5b; border-radius: 4px; font-size: 13px; pointer-events: none; }
 .felt > :not(.table-scene) { z-index: 1; }
 .player-panel { position: absolute; left: 13%; width: min(240px, 38%); min-height: 0; padding: 10px 14px; display: block; border-radius: 6px; background: #101d1edb; border: 1px solid #52726a; backdrop-filter: blur(8px); pointer-events: none; }
 .opponent { top: 13%; }
@@ -110,11 +116,28 @@ dialog::backdrop { background: #050e12b8; backdrop-filter: blur(7px); }
 .rules-dialog p { color: #b9c9be; }
 .rules-dialog .rank-list li, .result-player { background: #263430; border-color: #48594e; border-radius: 6px; }
 .mini-card { color: var(--spades); background: #fffdf6; }
-.mini-card.hearts { color: #d62647; }.mini-card.diamonds { color: #125bd4; }.mini-card.clubs { color: #087a45; }
+.mini-card.hearts { color: var(--hearts); }.mini-card.diamonds { color: var(--diamonds); }.mini-card.clubs { color: var(--clubs); }
 .deck-strip span { background: #34483e; color: #e8e9d6; }
 .result-player p, #gameOverText { color: #bdcfc1; }
 .result-player.winner { background: #2d4234; border-color: #b2ab6b; }
 .toast { background: #e9e6d3; color: #202a25; border: 1px solid #beaf86; border-radius: 6px; z-index: 20; }
+.player-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.name-row { flex-wrap: nowrap; min-width: 0; }
+.player-meta { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.player-list-item.list-turn { border-left: 3px solid #e5bd70; padding-left: 6px; background: #263a31; }
+.multiplayer .player-panel { width: 154px; padding: 5px 7px; left: 50%; top: 0; bottom: auto; transform: translateX(-50%); }
+.multiplayer .player-name { font-size: 12px; }
+.multiplayer .chip-row, .multiplayer .waterline-row { font-size: 10px; }
+.multiplayer .player-meta { gap: 3px; }
+.multiplayer .player-panel .turn-chip { position: absolute; top: -10px; right: 3px; }
+.multiplayer .board-zone { inset: 34% 12% 32%; }
+.multiplayer .status-text { display: none; }
+.multiplayer[data-seats='6'] .player-panel { width: 120px; }
+.multiplayer .folded-seat { opacity: .65; }
+.multiplayer-game .player-list-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.no-webgl .multiplayer { display: flex; flex-wrap: wrap; align-content: start; gap: 8px; height: auto; border-radius: 8px; min-height: 540px; padding: 16px; }
+.no-webgl .multiplayer .player-panel { position: static; transform: none; width: calc(50% - 4px); }
+.no-webgl .multiplayer .board-zone { position: static; order: 1; width: 100%; }
 
 @media (min-width: 1000px) {
   .landing-scene { left: 16%; right: -24%; }
@@ -126,6 +149,12 @@ dialog::backdrop { background: #050e12b8; backdrop-filter: blur(7px); }
   .player-panel { left: 8%; padding: 8px; }
 }
 @media (max-width: 980px) {
+  body:has(.game-shell:not(.hidden)) { overflow: auto; }
+  .game-shell { display: block; height: auto; min-height: 100svh; overflow: visible; }
+  .table-layout { flex: none; }
+  .side-panel { overflow: visible; flex: none; }
+  .side-panel > section { flex: none; overflow: visible; }
+  .actions-panel { display: block; }
   .join-shell { padding: 32px 24px; justify-content: flex-end; gap: 18px; padding-bottom: max(32px, env(safe-area-inset-bottom)); }
   .landing-scene { inset: -15% -15% 32%; }
   .join-shell::after { background: linear-gradient(0deg, #101617 0%, #101617fa 35%, #10161700 85%); }
@@ -147,6 +176,7 @@ dialog::backdrop { background: #050e12b8; backdrop-filter: blur(7px); }
   .felt { min-height: 0; height: clamp(245px, 39svh, 340px); flex: none; margin: 0 -12px; width: calc(100% + 24px); }
   .table-scene { inset: -5% -6%; }
   .player-panel { left: 7%; width: 40%; padding: 5px 7px; }
+  .hero-bankroll { right: 7%; bottom: 14%; font-size: 10px; padding: 3px 5px; }
   .opponent { top: 9%; }.hero { bottom: 7%; }
   .player-meta { gap: 3px; }.player-name { font-size: 12px; }
   .chip-row { font-size: 10px; gap: 5px; }.waterline-row { font-size: 10px; padding: 2px 5px; min-height: 18px; }
@@ -203,4 +233,19 @@ dialog::backdrop { background: #050e12b8; backdrop-filter: blur(7px); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (max-width: 700px) {
+  .multiplayer .player-panel { width: 108px; padding: 3px 5px; }
+  .multiplayer[data-seats='6'] .player-panel { width: 80px; }
+  .multiplayer .player-name { font-size: 11px; }
+  .multiplayer .chip-row { font-size: 9px; gap: 2px 5px; }
+  .multiplayer .waterline-row { font-size: 9px; min-height: 14px; padding: 1px 3px; }
+  .multiplayer .board-zone { inset: 35% 9% 32%; }
+  .multiplayer .pot-row { font-size: 11px; }
+  .multiplayer .status-text { max-width: 58%; font-size: 9px; }
+  .multiplayer-game .room-panel { grid-template-columns: minmax(0, 1fr) 80px; gap: 5px; }
+  .multiplayer-game .player-list { gap: 4px 8px; }
+  .multiplayer-game .player-list-item strong { max-width: 100%; }
+  .multiplayer-game .player-list-item { min-width: 0; }
+  .topbar-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 75%; }
 }

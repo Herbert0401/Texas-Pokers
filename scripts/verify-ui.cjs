@@ -18,6 +18,14 @@ fs.mkdirSync(output, { recursive: true });
     const a = await first.newPage(); const b = await second.newPage();
     pages.push(a, b);
     for (const page of [a, b]) {
+      await page.addInitScript(() => {
+        window.__wagerTones = 0;
+        const original = AudioContext.prototype.createOscillator;
+        AudioContext.prototype.createOscillator = function (...args) {
+          window.__wagerTones++;
+          return original.apply(this, args);
+        };
+      });
       page.on('pageerror', (error) => errors.push(error.message));
       await page.goto(url);
       await page.waitForFunction(() => document.body.classList.contains('three-ready'));
@@ -43,6 +51,8 @@ fs.mkdirSync(output, { recursive: true });
     }));
     await b.reload();
     await b.waitForFunction(() => state?.game);
+    await b.waitForFunction(() => document.body.classList.contains('three-ready'));
+    await b.waitForTimeout(1100);
     assert.deepEqual(await b.evaluate(() => ({
       cards: state.game.players.find((player) => player.isYou).holeCards,
       chips: state.game.players.find((player) => player.isYou).chips, pot: state.game.pot
@@ -51,9 +61,21 @@ fs.mkdirSync(output, { recursive: true });
     const other = actor === a ? b : a;
     await actor.locator('[data-action="betMin"]').click();
     await other.waitForFunction(() => state.game.canAct && state.game.toCall === 10);
+    await actor.waitForFunction(() => window.__wagerTones >= 2, null, { timeout: 5000 });
+    const movingChips = await actor.locator('#tableScene canvas').screenshot();
+    await actor.waitForTimeout(1100);
+    assert.ok(!movingChips.equals(await actor.locator('#tableScene canvas').screenshot()), 'wager chips move into the pot');
+    const tones = await actor.evaluate(() => window.__wagerTones);
+    await actor.locator('#soundButton').click();
+    assert.equal(await actor.locator('#soundButton').getAttribute('aria-pressed'), 'false');
     await other.locator('[data-action="call"]').click();
     await a.waitForFunction(() => state.game.street === 'flop');
+    const flippingCards = await a.locator('#tableScene canvas').screenshot();
+    await a.screenshot({ path: path.join(output, 'flop-animation.png') });
     await a.waitForTimeout(1200);
+    assert.ok(!flippingCards.equals(await a.locator('#tableScene canvas').screenshot()), 'new community cards flip face up');
+    assert.equal(await actor.evaluate(() => window.__wagerTones), tones, 'muted opponent wagers produce no sound');
+    assert.match(await actor.locator('#heroBankroll').innerText(), /990/);
     await a.screenshot({ path: path.join(output, 'table-desktop.png') });
     const canvas = a.locator('#tableScene canvas');
     const pixels = PNG.sync.read(await canvas.screenshot());
@@ -114,7 +136,11 @@ fs.mkdirSync(output, { recursive: true });
     assert.equal(await b.locator('.mini-cards').count(), 9);
     await b.screenshot({ path: path.join(output, 'rules-mobile.png') });
     await b.locator('#closeRules').click();
-    for (const page of [a, b]) await page.locator('#exitButton').click();
+    await a.locator('#exitButton').click();
+    await b.locator('#gameOverDialog').waitFor({ state: 'visible' });
+    assert.equal(await b.evaluate(() => state.stage), 'playing', 'opponent exit settles the hand without resetting the table');
+    await b.locator('#closeGameOver').click();
+    await b.locator('#exitButton').click();
     assert.deepEqual(errors, []);
     console.log('PASS: 3D pixels, concealed cards, reconnect, bet/call, all streets, settlement, next hand, rules, exit, desktop/mobile layouts.');
   } finally {

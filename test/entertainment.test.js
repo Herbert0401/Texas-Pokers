@@ -51,3 +51,15 @@ test("dramatic hand scripts create river comebacks for either seat", () => {
     );
   }
 });
+
+test("multiplayer entertainment reserves the board after every player's hole cards", () => {
+  for (const playerCount of [3, 4, 5, 6]) {
+    for (const script of DRAMATIC_HAND_SCRIPTS) {
+      const { deck } = buildDramaticDeck(script, { playerCount, swapSeats: false });
+      assert.equal(new Set(deck.map(cardKey)).size, 36);
+      const dealt = Array.from({ length: playerCount * 2 + 5 }, () => deck.pop());
+      const expected = drawScriptedCards(buildDramaticDeck(script, { swapSeats: false }).deck).slice(4);
+      assert.deepEqual(dealt.slice(playerCount * 2), expected);
+    }
+  }
+});

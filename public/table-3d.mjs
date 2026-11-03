@@ -1,5 +1,5 @@
 import * as THREE from './vendor/three.module.js';
-import { tableView, stackHeight } from './table-model.mjs';
+import { tableView, chipValues, wagerChanges, seatLayout } from './table-model.mjs';
 import createIcon from './vendor/lucide/createElement.js';
 import BookOpen from './vendor/lucide/icons/book-open.js';
 import LogOut from './vendor/lucide/icons/log-out.js';
@@ -7,6 +7,7 @@ import Play from './vendor/lucide/icons/play.js';
 import ArrowRight from './vendor/lucide/icons/arrow-right.js';
 import RotateCcw from './vendor/lucide/icons/rotate-ccw.js';
 import X from './vendor/lucide/icons/x.js';
+import { playWagerSound } from './table-sound.mjs';
 
 for (const [selector, icon] of [
   ['#rulesButton', BookOpen], ['#exitButton', LogOut], ['#startButton', Play],
@@ -22,8 +23,8 @@ const table = document.querySelector('#tableScene');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const textures = new Map();
 const suitStyles = {
-  spades: ['♠', '#111827'], hearts: ['♥', '#d62647'],
-  diamonds: ['♦', '#125bd4'], clubs: ['♣', '#087a45']
+  spades: ['♠', '#080e18'], hearts: ['♥', '#b00028'],
+  diamonds: ['♦', '#003fa8'], clubs: ['♣', '#005c2c']
 };
 let renderer;
 try {
@@ -71,6 +72,25 @@ function init() {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2(9, 9);
   let hovered = null;
+  let potLedger = [];
+  const bankroll = document.querySelector('#heroBankroll');
+
+  function positionPanels() {
+    if (snapshot?.players.length <= 2 || host !== table) return;
+    const hostRect = host.getBoundingClientRect();
+    const feltRect = host.parentElement.getBoundingClientRect();
+    snapshot.players.forEach((player, index) => {
+      const panel = document.querySelector(`.player-panel[data-player-id="${player.id}"]`);
+      if (!panel) return;
+      const { x, z } = seatLayout(index, snapshot.players.length);
+      const point = new THREE.Vector3(z > 1.5 ? x - 2.65 : x, 0.3, z > 1.5 ? z : z - 0.8).project(camera);
+      const px = (point.x + 1) / 2 * hostRect.width + hostRect.left - feltRect.left;
+      const py = (1 - point.y) / 2 * hostRect.height + hostRect.top - feltRect.top;
+      panel.style.left = `${Math.max(panel.offsetWidth / 2 + 4, Math.min(feltRect.width - panel.offsetWidth / 2 - 4, px))}px`;
+      const top = z > 1.5 ? py - panel.offsetHeight / 2 : py - panel.offsetHeight - 4;
+      panel.style.top = `${Math.max(4, Math.min(feltRect.height - panel.offsetHeight - 4, top))}px`;
+    });
+  }
 
   function resize() {
     const { width, height } = host.getBoundingClientRect();
@@ -82,6 +102,8 @@ function init() {
     camera.position.set(0, distance, mobile ? distance * 0.30 : distance * 0.53);
     camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    queueMicrotask(positionPanels);
     dirty = true;
   }
 
@@ -89,7 +111,25 @@ function init() {
   observer.observe(landing);
   observer.observe(table);
   function update(state) {
-    snapshot = tableView(state);
+    const next = tableView(state);
+    const wagers = wagerChanges(snapshot, next);
+    if (!snapshot || snapshot.hand !== next.hand || snapshot.preview !== next.preview || next.pot < snapshot.pot) {
+      potLedger = chipValues(next.pot).map((value) => ({ value, born: 0 }));
+    } else {
+      for (const wager of wagers) {
+        chipValues(wager.amount).forEach((value, i) => potLedger.push({
+          value, player: wager.player, born: performance.now(), delay: Math.min(i * 35, 650)
+        }));
+      }
+      if (potLedger.reduce((sum, chip) => sum + chip.value, 0) !== next.pot || potLedger.length > 144) {
+        potLedger = chipValues(next.pot).map((value) => ({ value, born: 0 }));
+      }
+    }
+    if (wagers.length && !document.hidden) playWagerSound(wagers.reduce((sum, wager) => sum + wager.amount, 0));
+    const newHand = snapshot?.hand !== next.hand;
+    snapshot = next;
+    bankroll.textContent = `筹码 ${snapshot.hero.chips}`;
+    bankroll.classList.toggle('hidden', !state?.game || snapshot.players.length > 2);
     const nextHost = state ? table : landing;
     if (nextHost !== host || !renderer.domElement.parentElement) {
       host = nextHost;
@@ -99,11 +139,11 @@ function init() {
     if (nextSignature !== signature) {
       signature = nextSignature;
       hovered = null;
-      pieces.userData.births = new Map(pieces.children.filter((piece) => piece.userData.card)
+      pieces.userData.births = new Map(pieces.children.filter((piece) => piece.userData.card && !newHand)
         .map((piece) => [piece.userData.key, piece.userData.born]));
       clearPieces(pieces);
-      buildPieces(pieces, snapshot);
-      animationUntil = performance.now() + 850;
+      buildPieces(pieces, snapshot, potLedger);
+      animationUntil = performance.now() + 2200;
     }
     world.rotation.y = snapshot.preview ? -0.12 : 0;
     resize();
@@ -118,9 +158,9 @@ function init() {
     raycaster.setFromCamera(pointer, camera);
     const hit = raycaster.intersectObjects(pieces.children, true).find((item) => item.object.userData.card);
     const next = hit?.object || null;
-    if (next !== hovered) { hovered = next; animationUntil = performance.now() + 300; }
+    if (next !== hovered) { hovered = next; animationUntil = Math.max(animationUntil, performance.now() + 300); }
   });
-  table.addEventListener('pointerleave', () => { hovered = null; animationUntil = performance.now() + 300; });
+  table.addEventListener('pointerleave', () => { hovered = null; animationUntil = Math.max(animationUntil, performance.now() + 300); });
   renderer.domElement.addEventListener('webglcontextlost', (event) => {
     event.preventDefault();
     document.body.classList.remove('three-ready');
@@ -143,12 +183,19 @@ function init() {
       world.rotation.y = -0.12 + Math.sin(time * 0.00022) * 0.045;
     }
     pieces.children.forEach((piece) => {
+      if (piece.userData.motion) {
+        const motion = piece.userData.motion;
+        const progress = reducedMotion.matches ? 1 : THREE.MathUtils.clamp((time - motion.born - motion.delay) / 900, 0, 1);
+        const eased = 1 - (1 - progress) ** 3;
+        piece.position.lerpVectors(motion.from, motion.to, eased);
+        piece.position.y += Math.sin(progress * Math.PI) * 0.35;
+      }
       if (!piece.userData.card) return;
       const elapsed = Math.max(0, time - piece.userData.born - piece.userData.delay);
-      const progress = reducedMotion.matches ? 1 : Math.min(1, elapsed / 400);
+      const progress = reducedMotion.matches ? 1 : Math.min(1, elapsed / 650);
       const lift = piece === hovered ? 0.28 : 0;
       piece.position.y = 0.29 + (1 - progress) ** 3 * 1.3 + lift;
-      piece.material.forEach((mat) => { if (mat.transparent) mat.opacity = progress; });
+      piece.rotation.y = Math.PI * (1 - progress) ** 2;
     });
     renderer.render(scene, camera);
     dirty = false;
@@ -203,9 +250,9 @@ function cardTexture(card) {
     const [symbol, color] = suitStyles[card.suit] || suitStyles.spades;
     const rank = card.rank === 'T' ? '10' : card.rank;
     ctx.fillStyle = color;
-    ctx.font = 'bold 84px Arial'; ctx.fillText(rank, 18, 86);
-    ctx.font = '52px Arial'; ctx.fillText(symbol, 22, 128);
-    ctx.font = '132px Arial'; ctx.textAlign = 'center'; ctx.fillText(symbol, 128, 257);
+    ctx.font = '900 96px Arial'; ctx.fillText(rank, 16, 92);
+    ctx.font = 'bold 56px Arial'; ctx.fillText(symbol, 20, 145);
+    ctx.font = 'bold 142px Arial'; ctx.textAlign = 'center'; ctx.fillText(symbol, 128, 267);
     ctx.save(); ctx.translate(256, 368); ctx.rotate(Math.PI);
     ctx.textAlign = 'left'; ctx.font = 'bold 60px Arial'; ctx.fillText(rank, 18, 65);
     ctx.restore();
@@ -228,7 +275,8 @@ function cardTexture(card) {
 
 function addCard(group, card, x, z, index, angle = 0) {
   const edge = new THREE.MeshStandardMaterial({ color: '#e8e4d9', roughness: 0.65 });
-  const front = new THREE.MeshStandardMaterial({ map: cardTexture(card), roughness: 0.76, transparent: true });
+  const front = new THREE.MeshBasicMaterial({ map: cardTexture(card), toneMapped: false });
+  const back = new THREE.MeshBasicMaterial({ map: cardTexture(null), toneMapped: false });
   const outline = new THREE.Shape();
   outline.moveTo(-0.40, -0.655);
   outline.lineTo(0.40, -0.655); outline.quadraticCurveTo(0.455, -0.655, 0.455, -0.60);
@@ -239,7 +287,19 @@ function addCard(group, card, x, z, index, angle = 0) {
   const positions = geometry.attributes.position;
   const uv = geometry.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, (positions.getX(i) + 0.455) / 0.91, (positions.getY(i) + 0.655) / 1.31);
-  const mesh = new THREE.Mesh(geometry, [front, edge]);
+  geometry.clearGroups();
+  let start = 0;
+  let materialIndex = -1;
+  for (let i = 0; i < positions.count; i += 3) {
+    const nz = geometry.attributes.normal.getZ(i);
+    const next = nz > 0.5 ? 0 : nz < -0.5 ? 2 : 1;
+    if (next !== materialIndex) {
+      if (i > start) geometry.addGroup(start, i - start, materialIndex);
+      start = i; materialIndex = next;
+    }
+  }
+  geometry.addGroup(start, positions.count - start, materialIndex);
+  const mesh = new THREE.Mesh(geometry, [front, edge, back]);
   mesh.rotation.set(-Math.PI / 2, 0, angle);
   mesh.scale.set(1.08, 1.08, 1);
   mesh.position.set(x, 0.29, z);
@@ -264,8 +324,7 @@ function chipTexture(value, color) {
   textures.set(key, texture); return texture;
 }
 
-function addStack(group, amount, x, z, color = '#b12f49', value = '100') {
-  const count = stackHeight(amount, Number(value));
+function addStack(group, count, x, z, color, value) {
   if (!count) return;
   const side = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
   const face = new THREE.MeshStandardMaterial({ map: chipTexture(value, color), roughness: 0.5 });
@@ -279,21 +338,20 @@ function addStack(group, amount, x, z, color = '#b12f49', value = '100') {
 }
 
 function addPile(group, amount, x, z) {
-  let remaining = amount;
+  const values = chipValues(amount, true);
   let column = 0;
   for (const [value, color] of [[100, '#b12f49'], [50, '#246aa0'], [10, '#c7a45d'], [1, '#437767']]) {
-    let count = Math.floor(remaining / value);
-    remaining %= value;
+    let count = values.filter((chip) => chip === value).length;
     while (count > 0 && column < 6) {
       const height = Math.min(12, count);
-      addStack(group, height * value, x + column * 0.53, z, color, String(value));
+      addStack(group, height, x + column * 0.53, z, color, String(value));
       count -= height;
       column++;
     }
   }
 }
 
-function buildPieces(group, view) {
+function buildPieces(group, view, potLedger) {
   view.board.forEach((card, i) => {
     if (card) addCard(group, card, (i - 2) * 1.03, 0.05, i);
     else {
@@ -302,17 +360,47 @@ function buildPieces(group, view) {
       slot.position.set((i - 2) * 1.03, 0.218, 0.05); group.add(slot);
     }
   });
-  for (const [player, z] of [[view.hero, 2.25], [view.opponent, -2.15]]) {
+  if (!view.preview && view.players.length > 2) {
+    view.players.forEach((player, index) => {
+      const { x, z } = seatLayout(index, view.players.length);
+      player.cards.forEach((card, i) => {
+        addCard(group, card, x + (i - 0.5) * 0.75, z, i, i ? -0.06 : 0.06);
+        group.children.at(-1).scale.set(0.88, 0.88, 1);
+      });
+      const pile = new THREE.Group();
+      addPile(pile, player.chips, 0, 0);
+      pile.scale.setScalar(0.6);
+      pile.position.set(x - 0.7, 0.12, z + (z > 0 ? -0.8 : 0.8));
+      group.add(pile);
+    });
+  } else for (const [player, z] of [[view.hero, 2.25], [view.opponent, -2.15]]) {
     if (!view.preview) player.cards.forEach((card, i) => addCard(group, card, 1.25 + i * 0.94, z, i, i ? -0.08 : 0.08));
-    addPile(group, view.preview ? 850 : player.chips, -3.6, z);
-    addPile(group, player.bet, -0.65, z * 0.63);
+    addPile(group, view.preview ? 850 : player.chips, 3.0, z + (z > 0 ? -0.6 : 0.6));
     if (player.dealer || view.preview && z > 0) {
       const dealer = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.07, 32),
         new THREE.MeshStandardMaterial({ map: chipTexture('D', '#a58343'), roughness: 0.35 }));
-      dealer.position.set(3.2, 0.29, z); dealer.castShadow = true; group.add(dealer);
+      dealer.position.set(-1.5, 0.29, z); dealer.castShadow = true; group.add(dealer);
     }
   }
-  addPile(group, view.preview ? 670 : view.pot, -0.4, -1.02);
+  const chips = view.preview ? chipValues(670, true).map((value) => ({ value, born: 0 })) : potLedger;
+  chips.forEach((entry, index) => {
+    const column = Math.floor(index / 14);
+    const x = -1.2 + (column % 4) * 0.55;
+    const z = -1.1 - Math.floor(column / 4) * 0.53;
+    const color = { 100: '#b12f49', 50: '#246aa0', 10: '#c7a45d', 1: '#437767' }[entry.value];
+    addStack(group, 1, x, z, color, String(entry.value));
+    const chip = group.children[group.children.length - 1];
+    chip.position.y += index % 14 * 0.08;
+    const to = chip.position.clone();
+    const playerIndex = view.players.findIndex(player => player.id === entry.player);
+    const origin = view.players.length > 2 && playerIndex >= 0 ? seatLayout(playerIndex, view.players.length)
+      : { x: 3.1, z: entry.player === view.hero.id || entry.player === 'hero' ? 3.0 : -2.75 };
+    chip.userData.motion = {
+      from: new THREE.Vector3(origin.x, 0.4, origin.z),
+      to, born: entry.born, delay: entry.delay || 0
+    };
+    if (!entry.born) chip.userData.motion = null;
+  });
 }
 
 function clearPieces(group) {

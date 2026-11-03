@@ -3,24 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>短牌单挑桌</title>
-    <meta name="description" content="两人线上联机短牌德州单挑桌。" />
-    <meta property="og:title" content="短牌单挑桌" />
-    <meta property="og:description" content="两人线上联机短牌德州单挑桌。" />
+    <title>短牌德州桌</title>
+    <meta name="description" content="2–6人线上联机短牌德州。" />
+    <meta property="og:title" content="短牌德州桌" />
+    <meta property="og:description" content="2–6人线上联机短牌德州。" />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/thumbnail.jpg" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="360" />
     <meta property="og:image:height" content="547" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="短牌单挑桌" />
-    <meta name="twitter:description" content="两人线上联机短牌德州单挑桌。" />
+    <meta name="twitter:title" content="短牌德州桌" />
+    <meta name="twitter:description" content="2–6人线上联机短牌德州。" />
     <meta name="twitter:image" content="/thumbnail.jpg" />
     <link rel="image_src" href="/thumbnail.jpg" />
     <link rel="apple-touch-icon" href="/thumbnail.jpg" />
     <link rel="icon" href="/thumbnail.jpg" type="image/jpeg" />
     <link rel="stylesheet" href="/styles.css?v=20260618-royal-headsup" />
-    <link rel="stylesheet" href="/table-ui.css?v=20261101" />
+    <link rel="stylesheet" href="/table-ui.css?v=20261103" />
   </head>
   <body>
     <div id="app">
@@ -42,9 +42,9 @@
           </div>
         </div>
         <div class="brand-block">
-          <p class="eyebrow">Short Deck Heads-Up</p>
-          <h1>短牌单挑桌</h1>
-          <p class="subtle">两名玩家输入相同四位数字进入房间，房主开局。</p>
+          <p class="eyebrow">Short Deck · 2–6 Players</p>
+          <h1>短牌德州桌</h1>
+          <p class="subtle">2–6 人 · 1000 筹码 · 无盲注</p>
         </div>
         <form id="joinForm" class="join-form">
           <label>
@@ -66,6 +66,7 @@
             <h2 id="tableTitle">等待玩家</h2>
           </div>
           <div class="topbar-actions">
+            <button id="soundButton" class="ghost" type="button" aria-label="下注音效" aria-pressed="true">音效：开</button>
             <button id="rulesButton" class="ghost" type="button">短牌规则</button>
             <button id="exitButton" class="ghost hidden" type="button">退出</button>
             <button id="startButton" class="primary hidden" type="button">开始游戏</button>
@@ -77,6 +78,7 @@
         <main class="table-layout">
           <section class="felt">
             <div id="tableScene" class="table-scene" aria-hidden="true"></div>
+            <div id="heroBankroll" class="hero-bankroll hidden"></div>
             <div id="opponentPanel" class="player-panel opponent"></div>
 
             <div class="board-zone">
@@ -148,8 +150,10 @@
         <section>
           <h3>本桌采用</h3>
           <p>36张牌，只保留 6、7、8、9、10、J、Q、K、A。每名玩家两张手牌，最多五张公共牌，从七张牌中选最佳五张。</p>
-          <p>本桌取消大小盲注和前注，保留轮流庄家。每轮行动从非庄家开始，庄家后行动。</p>
+          <p>本桌支持 2–6 人，取消大小盲注和前注，保留轮流庄家。每轮行动从庄家下一位仍可行动的玩家开始，按座位顺序进行。</p>
           <p>最低下注或加注为 10 筹码；若剩余筹码不足 10，可以直接全下。</p>
+          <p>加注至少等于本轮上一次完整加注幅度。不足幅度的全下不会单独重新开放已行动玩家的加注权。</p>
+          <p>不同筹码全下会产生主池与边池，各池单独比较牌型。未被跟注的部分退回。中途加入从下一手参与，筹码归零后观战，直到整场结束。</p>
           <p>A 可以当高牌，也可以组成 A-6-7-8-9 的最小顺子。</p>
         </section>
         <section>
@@ -200,7 +204,8 @@
     </dialog>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=20261101-3d"></script>
-    <script type="module" src="/table-3d.mjs?v=20261101"></script>
+    <script src="/presentation.js?v=20261103"></script>
+    <script src="/app.js?v=20261103"></script>
+    <script type="module" src="/table-3d.mjs?v=20261103"></script>
   </body>
 </html>
