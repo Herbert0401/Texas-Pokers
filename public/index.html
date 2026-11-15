@@ -20,7 +20,7 @@
     <link rel="apple-touch-icon" href="/thumbnail.jpg" />
     <link rel="icon" href="/thumbnail.jpg" type="image/jpeg" />
     <link rel="stylesheet" href="/styles.css?v=20260618-royal-headsup" />
-    <link rel="stylesheet" href="/table-ui.css?v=20261103" />
+    <link rel="stylesheet" href="/table-ui.css?v=20261115" />
   </head>
   <body>
     <div id="app">
@@ -42,9 +42,9 @@
           </div>
         </div>
         <div class="brand-block">
-          <p class="eyebrow">Short Deck · 2–6 Players</p>
+          <p class="eyebrow club-mark"><span aria-hidden="true">♠</span> Short Deck Hold’em</p>
           <h1>短牌德州桌</h1>
-          <p class="subtle">2–6 人 · 1000 筹码 · 无盲注</p>
+          <ul class="table-specs" aria-label="牌桌规格"><li><b>2–6</b> 人桌</li><li><b>1,000</b> 起始筹码</li><li>无盲注</li></ul>
         </div>
         <form id="joinForm" class="join-form">
           <label>
@@ -108,7 +108,7 @@
 
             <section class="actions-panel">
               <h3>行动</h3>
-              <div id="actionHint" class="action-hint">进入房间后等待开局。</div>
+              <div id="actionHint" class="action-hint" role="status" aria-atomic="true">进入房间后等待开局。</div>
               <div class="quick-actions">
                 <button data-action="fold" type="button">弃牌</button>
                 <button data-action="check" type="button">过牌</button>
@@ -137,11 +137,11 @@
       </section>
     </div>
 
-    <dialog id="rulesDialog" class="rules-dialog">
+    <dialog id="rulesDialog" class="rules-dialog" aria-labelledby="rulesTitle">
       <div class="dialog-head">
         <div>
           <p class="eyebrow">6+ Hold'em</p>
-          <h2>短牌德州规则</h2>
+          <h2 id="rulesTitle">短牌德州规则</h2>
         </div>
         <button id="closeRules" class="icon-button" type="button" aria-label="关闭">×</button>
       </div>
@@ -185,7 +185,7 @@
       </div>
     </dialog>
 
-    <dialog id="gameOverDialog" class="result-dialog">
+    <dialog id="gameOverDialog" class="result-dialog" aria-labelledby="gameOverTitle">
       <div class="result-panel">
         <p class="eyebrow" id="resultEyebrow">Hand Result</p>
         <h2 id="gameOverTitle">本局结算</h2>
@@ -203,9 +203,9 @@
       </div>
     </dialog>
 
-    <div id="toast" class="toast hidden"></div>
+    <div id="toast" class="toast hidden" role="status"></div>
     <script src="/presentation.js?v=20261103"></script>
-    <script src="/app.js?v=20261103"></script>
-    <script type="module" src="/table-3d.mjs?v=20261103"></script>
+    <script src="/app.js?v=20261115"></script>
+    <script type="module" src="/table-3d.mjs?v=20261115"></script>
   </body>
 </html>

@@ -483,13 +483,13 @@ function renderActions(game, hero) {
   quickActions.querySelectorAll("[data-bb]").forEach((button) => {
     const bb = Number(button.dataset.bb);
     const action = calculateBbAction(bb);
-    button.textContent = `${bb}BB · ${action.target}`;
+    renderWagerLabel(button, `${bb}BB`, action.target);
     button.disabled = !canAct || action.amount <= 0 || hero.chips <= 0 || game.canRaise === false && action.amount > toCall;
   });
 
   quickActions.querySelectorAll("[data-fraction]").forEach((button) => {
     const amount = calculatePotBet(Number(button.dataset.fraction));
-    button.textContent = `${button.dataset.fraction === "0.667" ? "2/3" : Number(button.dataset.fraction) === 1 ? "满" : "1/2"}池 · ${amount}`;
+    renderWagerLabel(button, `${button.dataset.fraction === "0.667" ? "2/3" : Number(button.dataset.fraction) === 1 ? "满" : "1/2"}池`, amount);
     button.disabled = !canAct || amount <= 0 || hero.chips <= 0 || game.canRaise === false && amount > toCall;
   });
 
@@ -501,6 +501,12 @@ function renderActions(game, hero) {
   customAmount.min = String(toCall > 0 ? toCall : minBet);
   customAmount.step = String(minBet);
   customAmount.placeholder = toCall > 0 ? "跟注或加注筹码" : `至少${minBet}筹码`;
+}
+
+function renderWagerLabel(button, label, amount) {
+  const value = document.createElement("strong");
+  value.textContent = amount;
+  button.replaceChildren(document.createTextNode(label + " "), value);
 }
 
 function setControlsEnabled(enabled) {

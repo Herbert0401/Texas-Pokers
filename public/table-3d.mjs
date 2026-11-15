@@ -60,7 +60,7 @@ function init() {
   scene.add(fill);
   const world = new THREE.Group();
   scene.add(world);
-  buildTable(world);
+  const tableImprint = buildTable(world);
   const pieces = new THREE.Group();
   world.add(pieces);
   let host = landing;
@@ -128,6 +128,7 @@ function init() {
     if (wagers.length && !document.hidden) playWagerSound(wagers.reduce((sum, wager) => sum + wager.amount, 0));
     const newHand = snapshot?.hand !== next.hand;
     snapshot = next;
+    tableImprint.visible = snapshot.preview;
     bankroll.textContent = `筹码 ${snapshot.hero.chips}`;
     bankroll.classList.toggle('hidden', !state?.game || snapshot.players.length > 2);
     const nextHost = state ? table : landing;
@@ -214,9 +215,9 @@ function oval(radius, height, color, sx, sz, y, roughness = 0.6) {
 
 function buildTable(group) {
   group.add(oval(1, 0.38, '#121718', 6.55, 4.35, -0.30));
-  group.add(oval(1, 0.07, '#bfa66c', 6.50, 4.30, -0.065, 0.3));
-  group.add(oval(1, 0.28, '#262c2b', 6.39, 4.19, 0.02));
-  const felt = oval(1, 0.08, '#14645c', 5.94, 3.74, 0.16);
+  group.add(oval(1, 0.07, '#c5a368', 6.50, 4.30, -0.065, 0.3));
+  group.add(oval(1, 0.28, '#251d20', 6.39, 4.19, 0.02));
+  const felt = oval(1, 0.08, '#155841', 5.94, 3.74, 0.16);
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 256;
   const ctx = canvas.getContext('2d');
@@ -236,7 +237,33 @@ function buildTable(group) {
     return new THREE.Vector3(Math.cos(a) * 5.40, 0.211, Math.sin(a) * 3.23);
   });
   group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),
-    new THREE.LineBasicMaterial({ color: '#72a49a', transparent: true, opacity: 0.45 })));
+    new THREE.LineBasicMaterial({ color: '#d4bc80', transparent: true, opacity: 0.45 })));
+
+  const stitches = [];
+  for (let i = 0; i < 180; i++) {
+    for (const step of [i, i + 0.48]) {
+      const a = step / 180 * Math.PI * 2;
+      stitches.push(new THREE.Vector3(Math.cos(a) * 6.16, 0.166, Math.sin(a) * 3.98));
+    }
+  }
+  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stitches),
+    new THREE.LineBasicMaterial({ color: '#bd9d73', transparent: true, opacity: 0.7 })));
+
+  const print = document.createElement('canvas');
+  print.width = 1024; print.height = 192;
+  const ink = print.getContext('2d');
+  ink.fillStyle = '#ddc99a'; ink.textAlign = 'center';
+  ink.font = 'bold 90px Georgia, serif'; ink.fillText('SHORT DECK', 512, 96);
+  ink.font = '36px Georgia, serif'; ink.fillText('♠    ♥    ♦    ♣', 512, 158);
+  ink.fillRect(200, 145, 130, 2); ink.fillRect(694, 145, 130, 2);
+  const map = new THREE.CanvasTexture(print);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const imprint = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 0.72),
+    new THREE.MeshBasicMaterial({ map, transparent: true, opacity: 0.8, depthWrite: false }));
+  imprint.rotation.x = -Math.PI / 2;
+  imprint.position.set(0, 0.215, 1.65);
+  group.add(imprint);
+  return imprint;
 }
 
 function cardTexture(card) {
@@ -245,7 +272,7 @@ function cardTexture(card) {
   const canvas = document.createElement('canvas');
   canvas.width = 256; canvas.height = 368;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = card ? '#fffdf7' : '#183f51'; ctx.fillRect(0, 0, 256, 368);
+  ctx.fillStyle = card ? '#fffdf7' : '#482635'; ctx.fillRect(0, 0, 256, 368);
   if (card) {
     const [symbol, color] = suitStyles[card.suit] || suitStyles.spades;
     const rank = card.rank === 'T' ? '10' : card.rank;
@@ -257,14 +284,19 @@ function cardTexture(card) {
     ctx.textAlign = 'left'; ctx.font = 'bold 60px Arial'; ctx.fillText(rank, 18, 65);
     ctx.restore();
   } else {
-    ctx.strokeStyle = '#86a6b2'; ctx.lineWidth = 3;
+    ctx.strokeStyle = '#d9bc89'; ctx.lineWidth = 4;
     ctx.strokeRect(12, 12, 232, 344);
-    ctx.strokeStyle = '#326078'; ctx.lineWidth = 2;
+    ctx.strokeRect(20, 20, 216, 328);
+    ctx.save(); ctx.beginPath(); ctx.rect(25, 25, 206, 318); ctx.clip();
+    ctx.strokeStyle = '#80505a'; ctx.lineWidth = 2;
     for (let i = -368; i < 650; i += 22) {
       ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 368, 368); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(i, 368); ctx.lineTo(i + 368, 0); ctx.stroke();
     }
-    ctx.fillStyle = '#d5bd80'; ctx.textAlign = 'center'; ctx.font = '72px Arial'; ctx.fillText('♠', 128, 211);
+    ctx.restore();
+    ctx.beginPath(); ctx.moveTo(128, 104); ctx.lineTo(182, 184); ctx.lineTo(128, 264); ctx.lineTo(74, 184); ctx.closePath();
+    ctx.fillStyle = '#482635'; ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#efd69e'; ctx.textAlign = 'center'; ctx.font = '72px Georgia'; ctx.fillText('♠', 128, 206);
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
